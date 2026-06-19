@@ -44,8 +44,8 @@ pub fn read(
     self: *const Self,
     dir: std.Io.Dir,
     path: []const u8,
+    read_buffer: []u8,
 ) !void {
-    var read_buffer: [1024 * 64]u8 = undefined;
     var file = dir.openFile(self.io, path, .{ .mode = .read_only }) catch |err| {
         switch (err) {
             error.FileNotFound => std.log.err("File not found: {s}", .{path}),
@@ -57,7 +57,7 @@ pub fn read(
 
     defer file.close(self.io);
 
-    var file_reader = file.reader(self.io, &read_buffer);
+    var file_reader = file.reader(self.io, read_buffer);
     var reader = &file_reader.interface;
     var line_num: u32 = 0;
 
@@ -91,6 +91,28 @@ pub fn read(
     try self.writer.flush();
 }
 
+test "skips a line that exceeds the 64 KB limit" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const huge = "x" ** (64 * 1024 + 1); // 1 byte over the limit
+    const data = "ok\n" ++ huge ++ "\n" ++ "fine\n";
+    try tmp.dir.writeFile(io, .{ .sub_path = "big.log", .data = data });
+
+    var aw = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer aw.deinit();
+
+    var rb: [64 * 1024]u8 = undefined; // the real production size
+    const r = Self.init(io, &aw.writer, .CLOSE);
+    try r.read(tmp.dir, "big.log", &rb); // skip → no error
+
+    const out = aw.writer.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "ok") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "fine") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, huge) == null);
+}
+
 test "read a deliberately long line" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
@@ -99,7 +121,7 @@ test "read a deliberately long line" {
 
     defer tmp.cleanup();
 
-    // 300 bytes exceeds 256-byte buffer
+    // 300-byte line fits within the 1 KB buffer, so it is read whole.
     const long_line = ("a" ** 300) ++ "\n";
 
     try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = long_line });
@@ -107,8 +129,9 @@ test "read a deliberately long line" {
     var aw = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer aw.deinit();
 
+    var rb: [1024]u8 = undefined;
     const r = Self.init(io, &aw.writer, .CLOSE);
-    try r.read(tmp.dir, filename);
+    try r.read(tmp.dir, filename, &rb);
 
     try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "a" ** 300) != null);
 }
