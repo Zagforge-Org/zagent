@@ -40,13 +40,17 @@ pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
     return .{
         .allocator = allocator,
         .capacity = capacity,
-        .storage = try allocator.alloc([]Record, capacity),
+        .storage = try allocator.alloc(Record, capacity),
+        .head = 0,
+        .tail = 0,
+        .dropped = 0,
+        .count = 0,
     };
 }
 
 pub fn push(self: *Self, record: Record) !void {
     if (self.isFull()) {
-        self.tail(self.tail + 1) % self.capacity;
+        self.tail = (self.tail + 1) % self.capacity;
         self.dropped += 1;
     } else {
         self.count += 1;
