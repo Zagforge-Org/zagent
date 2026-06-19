@@ -39,7 +39,7 @@ pub fn deinit(self: *Self) void {
 }
 
 // Keep inclusive since we already have this pattern going on Reader.zig
-// pending growth should be pended with 64kb limit.
+// pending growth should be limited with 64kb limit.
 //
 //
 pub fn readNew(self: *Self, emit: fn ([]u8) void) !void {
