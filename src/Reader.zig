@@ -23,10 +23,10 @@ const State = enum {
 
 /// Creates a `Reader` bound to `io` and `writer`. Does not touch the
 /// filesystem; files are opened lazily in `read`.
-pub fn init(io: std.Io, writer: *std.Io.Writer) Self {
+pub fn init(io: std.Io, writer: *std.Io.Writer, state: State) Self {
     return .{
         .io = io,
-        .state = .KEEP_OPEN,
+        .state = state,
         .writer = writer,
     };
 }
@@ -109,18 +109,21 @@ pub fn read(
 test "read a deliberately long line" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
+
+    const filename: []const u8 = "long.log";
+
     defer tmp.cleanup();
 
     // 300 bytes exceeds 256-byte buffer
     const long_line = ("a" ** 300) ++ "\n";
 
-    try tmp.dir.writeFile(io, .{ .sub_path = "long.log", .data = long_line });
+    try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = long_line });
 
     var aw = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer aw.deinit();
 
-    const r = Self.init("long.log");
-    try r.read(io, tmp.dir, &aw.writer);
+    const r = Self.init(io, &aw.writer, .CLOSE);
+    try r.read(tmp.dir, filename);
 
     try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "a" ** 300) != null);
 }
