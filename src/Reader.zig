@@ -45,7 +45,7 @@ pub fn read(
     dir: std.Io.Dir,
     path: []const u8,
 ) !void {
-    var read_buffer: [256]u8 = undefined;
+    var read_buffer: [1024 * 64]u8 = undefined;
     var file = dir.openFile(self.io, path, .{ .mode = .read_only }) catch |err| {
         switch (err) {
             error.FileNotFound => std.log.err("File not found: {s}", .{path}),
@@ -59,48 +59,33 @@ pub fn read(
 
     var file_reader = file.reader(self.io, &read_buffer);
     var reader = &file_reader.interface;
-
     var line_num: u32 = 0;
 
     while (true) {
-        _ = reader.peekByte() catch |err| switch (err) {
+        const line = reader.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => switch (self.state) {
                 .CLOSE => break,
                 .KEEP_OPEN => {
                     try self.writer.flush();
-                    try self.io.sleep(.fromMilliseconds(500), .awake);
-                    std.debug.print("Opened. \n", .{});
+                    try self.io.sleep(.fromMilliseconds(100), .awake);
                     continue;
                 },
             },
-            else => return err,
+            error.StreamTooLong => {
+                std.log.warn("line {d} exceeds {d} bytes; skipping", .{ line_num + 1, read_buffer.len });
+                _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                    error.EndOfStream => break,
+                    else => return e,
+                };
+                continue;
+            },
+            error.ReadFailed => return err,
         };
 
         line_num += 1;
 
         try self.writer.print("Current line: {d}: ", .{line_num});
-
-        _ = reader.streamDelimiter(self.writer, '\n') catch |err| {
-            switch (err) {
-                error.EndOfStream => {
-                    try self.writer.writeByte('\n');
-                    break;
-                },
-                error.ReadFailed => {
-                    std.log.err("Failed to read bytes stream: {s}", .{path});
-                    return err;
-                },
-                else => {
-                    std.log.err("Failed to stream bytes: {s} : {s}", .{ path, @errorName(err) });
-                    return err;
-                },
-            }
-        };
-
-        try self.writer.writeByte('\n');
-
-        // discard '\n' advancing to the next line
-        reader.toss(1);
+        try self.writer.writeAll(line);
     }
 
     try self.writer.flush();
@@ -127,3 +112,8 @@ test "read a deliberately long line" {
 
     try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "a" ** 300) != null);
 }
+
+// Accept a sane bounded line boundary; this will effectively limit overflow issues and preserve streaming capabilities.
+// Bump limit to 1024*64 (64kb)
+
+// Instead of having a fixed length, we should use ArrayList() which would act as a dynamic memory allocator
