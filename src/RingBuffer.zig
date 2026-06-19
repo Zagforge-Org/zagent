@@ -40,16 +40,27 @@ pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
     return .{
         .allocator = allocator,
         .capacity = capacity,
+        .storage = try allocator.alloc([]Record, capacity),
     };
 }
 
 pub fn push(self: *Self, record: Record) !void {
-    _ = self;
-    _ = record;
+    if (self.isFull()) {
+        self.tail(self.tail + 1) % self.capacity;
+        self.dropped += 1;
+    } else {
+        self.count += 1;
+    }
+    self.storage[self.head] = record;
+    self.head = (self.head + 1) % self.capacity;
 }
 
 pub fn pop(self: *Self) ?Record {
-    _ = self;
+    if (self.isEmpty()) return null;
+    const record = self.storage[self.tail];
+    self.tail = (self.tail + 1) % self.capacity;
+    self.count -= 1;
+    return record;
 }
 
 fn isEmpty(self: *Self) bool {
@@ -60,4 +71,6 @@ fn isFull(self: *Self) bool {
     return self.count == self.capacity;
 }
 
-pub fn deinit() void {}
+pub fn deinit(self: *Self) void {
+    self.allocator.free(self.storage);
+}
