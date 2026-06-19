@@ -1,23 +1,43 @@
+//! Follows a growing file (`tail -F`): emits newly appended lines, survives log
+//! rotation by tracking the file's inode, and recovers from in-place truncation.
+//! Partial lines are buffered until their terminating newline arrives, so a line
+//! split across reads is never emitted half-written.
+
 const std = @import("std");
 
+/// Path of the file being followed.
 path: []const u8,
+/// Open handle to the file currently being read. Survives renames, so it keeps
+/// pointing at the original inode until `reopen` swaps it.
 file: std.Io.File,
+/// Directory `path` resolves against.
 dir: std.Io.Dir,
 
+/// Whether we are mid-discard of an over-long line, dropping bytes until the
+/// next newline. Spans polls because the rest of the line may not have arrived.
 skipping: bool,
 
+/// Inode of the file we opened.
 inode: std.posix.ino_t,
 
+/// Byte position consumed so far.
 offset: u64,
+
+/// Buffer holding the trailing partial line carried between reads.
+pending: std.ArrayList(u8),
+
 io: std.Io,
 
-pending: std.ArrayList(u8),
 allocator: std.mem.Allocator,
 
 const Self = @This();
 
+/// Maximum length of a single line.
 const MAX_LINE: u32 = 64 * 1024;
 
+/// Opens `path` under `dir` and returns a `Tailer` positioned at the start of
+/// the file. Records the file's inode for later rotation detection. The caller
+/// owns the result and must call `deinit`.
 pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []const u8) !Self {
     const file = try dir.openFile(io, path, .{ .mode = .read_only });
     const stat = try file.stat(io);
@@ -35,14 +55,17 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []c
     };
 }
 
+/// Frees the pending buffer and closes the open file handle.
 pub fn deinit(self: *Self) void {
     self.pending.deinit(self.allocator);
     self.file.close(self.io);
 }
 
-// Keep inclusive since we already have this pattern going on Reader.zig
-// pending growth should be limited with 64kb limit.
-pub fn readNew(self: *Self, writer: *std.Io.Writer) !void {
+/// Reads all bytes available since the last call and writes every now-complete
+/// line to `writer`. The trailing partial line is kept in
+/// `pending` for the next call. A line longer than `MAX_LINE` is dropped and the
+/// reader enters `skipping` mode until the next newline. Does not flush `writer`.
+fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     if (self.pending.items.len > MAX_LINE) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{MAX_LINE});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -111,17 +134,25 @@ test "readNew emits whole lines and follows appends" {
     try std.testing.expectEqualStrings("alpha\nbeta\ngamma\n", aw.writer.buffered());
 }
 
-pub fn hasRotated(self: *Self) !bool {
+/// Returns whether `path` now resolves to a different file than the one we hold
+/// (i.e. it was rotated). Stats the path, not the handle, since our handle
+/// follows renames. May return `error.FileNotFound` during the brief window
+/// between a rename and the new file being created.
+fn hasRotated(self: *Self) !bool {
     const stat = try self.dir.statFile(self.io, self.path, .{});
     return stat.inode != self.inode;
 }
 
-pub fn wasTruncated(self: *Self) !bool {
+/// Returns whether the file shrank below our read position, i.e. it was
+/// truncated in place. Stats the handle, since truncation keeps the same inode.
+fn wasTruncated(self: *Self) !bool {
     const stat = try self.file.stat(self.io);
     return stat.size < self.offset;
 }
 
-pub fn reopen(self: *Self) !void {
+/// Switches to the new file at `path` after a rotation: closes the stale handle,
+/// reopens the path, records the new inode, and resets position and buffer.
+fn reopen(self: *Self) !void {
     self.file.close(self.io);
     self.file = try self.dir.openFile(self.io, self.path, .{ .mode = .read_only });
     const stat = try self.file.stat(self.io);
@@ -130,7 +161,36 @@ pub fn reopen(self: *Self) !void {
     self.pending.clearRetainingCapacity();
 }
 
-pub fn rewind(self: *Self) !void {
+/// Resets to the start of the same file after truncation: position to 0 and the
+/// stale partial line dropped. Unlike `reopen`, the file handle is unchanged.
+fn rewind(self: *Self) !void {
     self.offset = 0;
     self.pending.clearRetainingCapacity();
+}
+
+/// Follows the file indefinitely: drains and flushes new lines, rewinds on
+/// truncation, reopens on rotation (treating a missing path as a transient
+/// mid-rotation gap), and polls every 500 ms when caught up. Does not return
+/// under normal operation; only propagates fatal I/O errors.
+pub fn follow(self: *Self, writer: *std.Io.Writer) !void {
+    while (true) {
+        try self.readNew(writer);
+        try writer.flush();
+
+        if (try self.wasTruncated()) {
+            try self.rewind();
+            continue;
+        }
+
+        const rotated = self.hasRotated() catch |err| switch (err) {
+            error.FileNotFound => false,
+            else => return err,
+        };
+        if (rotated) {
+            try self.reopen();
+            continue;
+        }
+
+        try self.io.sleep(.fromMilliseconds(500), .awake);
+    }
 }
