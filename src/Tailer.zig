@@ -4,12 +4,15 @@
 //! split across reads is never emitted half-written.
 
 const std = @import("std");
+const RingBuffer = @import("RingBuffer.zig");
 
 /// Path of the file being followed.
 path: []const u8,
+
 /// Open handle to the file currently being read. Survives renames, so it keeps
 /// pointing at the original inode until `reopen` swaps it.
 file: std.Io.File,
+
 /// Directory `path` resolves against.
 dir: std.Io.Dir,
 
@@ -61,11 +64,11 @@ pub fn deinit(self: *Self) void {
     self.file.close(self.io);
 }
 
-/// Reads all bytes available since the last call and writes every now-complete
-/// line to `writer`. The trailing partial line is kept in
+/// Reads all bytes available since the last call and pushes every now-complete
+/// line into `ring` as a `log` record. The trailing partial line is kept in
 /// `pending` for the next call. A line longer than `MAX_LINE` is dropped and the
-/// reader enters `skipping` mode until the next newline. Does not flush `writer`.
-fn readNew(self: *Self, writer: *std.Io.Writer) !void {
+/// reader enters `skipping` mode until the next newline.
+fn readNew(self: *Self, ring: *RingBuffer) !void {
     if (self.pending.items.len > MAX_LINE) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{MAX_LINE});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -95,7 +98,11 @@ fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     var start: usize = 0;
 
     while (std.mem.indexOfScalarPos(u8, self.pending.items, start, '\n')) |newline| {
-        try writer.writeAll(self.pending.items[start .. newline + 1]);
+        try ring.push(.{
+            .timestamp = std.Io.Timestamp.now(self.io, .real),
+            .content = self.pending.items[start .. newline + 1],
+            .kind = .log,
+        });
         start = newline + 1;
     }
 
@@ -106,7 +113,15 @@ fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     }
 }
 
-test "readNew emits whole lines and follows appends" {
+/// Pops one record and asserts its content, then frees it (`pop` transfers
+/// ownership of the bytes to us).
+fn expectPop(ring: *RingBuffer, want: []const u8) !void {
+    const rec = ring.pop() orelse return error.UnexpectedEmpty;
+    defer std.testing.allocator.free(rec.content);
+    try std.testing.expectEqualStrings(want, rec.content);
+}
+
+test "readNew buffers whole lines and follows appends" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -114,24 +129,27 @@ test "readNew emits whole lines and follows appends" {
     const filename = "tail.log";
     try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = "alpha\nbeta\n" });
 
-    var aw = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer aw.deinit();
+    var ring = try RingBuffer.init(std.testing.allocator, 8);
+    defer ring.deinit();
 
     var t = try Self.open(std.testing.allocator, io, tmp.dir, filename);
     defer t.deinit();
 
-    // first poll: both complete lines come out
-    try t.readNew(&aw.writer);
-    try std.testing.expectEqualStrings("alpha\nbeta\n", aw.writer.buffered());
+    // first poll: both complete lines are buffered as records
+    try t.readNew(&ring);
+    try expectPop(&ring, "alpha\n");
+    try expectPop(&ring, "beta\n");
+    try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
 
     // append a third line to the same file (same inode), at the current end
     var wf = try tmp.dir.openFile(io, filename, .{ .mode = .write_only });
     defer wf.close(io);
     try wf.writePositionalAll(io, "gamma\n", "alpha\nbeta\n".len);
 
-    // second poll: only the newly appended line is emitted, numbering/offset continues
-    try t.readNew(&aw.writer);
-    try std.testing.expectEqualStrings("alpha\nbeta\ngamma\n", aw.writer.buffered());
+    // second poll: only the newly appended line is buffered, offset continues
+    try t.readNew(&ring);
+    try expectPop(&ring, "gamma\n");
+    try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
 }
 
 /// Returns whether `path` now resolves to a different file than the one we hold
@@ -172,9 +190,14 @@ fn rewind(self: *Self) !void {
 /// truncation, reopens on rotation (treating a missing path as a transient
 /// mid-rotation gap), and polls every 500 ms when caught up. Does not return
 /// under normal operation; only propagates fatal I/O errors.
-pub fn follow(self: *Self, writer: *std.Io.Writer) !void {
+pub fn follow(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
     while (true) {
-        try self.readNew(writer);
+        try self.readNew(ring);
+
+        while (ring.pop()) |rec| {
+            try writer.writeAll(rec.content);
+            self.allocator.free(rec.content);
+        }
         try writer.flush();
 
         if (try self.wasTruncated()) {
