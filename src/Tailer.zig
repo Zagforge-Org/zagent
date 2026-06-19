@@ -4,7 +4,6 @@ path: []const u8,
 file: std.Io.File,
 
 inode: std.posix.ino_t,
-dev: std.posix.dev_t,
 
 offset: u64,
 io: std.Io,
@@ -15,7 +14,7 @@ allocator: std.mem.Allocator,
 const Self = @This();
 
 pub fn open(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Self {
-    const file = try std.Io.Dir.openFile(path, .{ .mode = .read_only });
+    const file = try std.Io.Dir.openFile(io, path, .{ .mode = .read_only });
     const stat = try file.stat(io);
 
     return .{
@@ -31,11 +30,7 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Self {
 }
 
 pub fn deinit(self: *Self) void {
-    for (self.pending.items) |item| {
-        self.allocator.destroy(item);
-    }
     self.pending.deinit(self.allocator);
-
     self.file.close(self.io);
 }
 
