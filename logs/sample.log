@@ -1,0 +1,30 @@
+2026-06-19T08:00:01.412Z INFO  server      Starting api-gateway v1.4.2 (pid=4821, commit=9f3a1c7)
+2026-06-19T08:00:01.498Z INFO  config      Loaded configuration from /etc/gateway/config.toml
+2026-06-19T08:00:01.501Z INFO  server      Listening on 0.0.0.0:8080
+2026-06-19T08:00:02.117Z INFO  http        GET /healthz 200 1ms
+2026-06-19T08:00:03.884Z INFO  http        POST /v1/orders 201 42ms user=u_8123
+2026-06-19T08:00:04.052Z DEBUG cache       cache miss key=product:5567 took=0.3ms
+2026-06-19T08:00:04.061Z INFO  http        GET /v1/products/5567 200 18ms
+2026-06-19T08:00:05.330Z WARN  ratelimit   client 203.0.113.44 approaching limit (92/100 req/min)
+2026-06-19T08:00:06.771Z INFO  http        GET /v1/products 200 27ms
+2026-06-19T08:00:07.219Z ERROR db          query timeout after 5000ms: SELECT * FROM orders WHERE status='pending'
+2026-06-19T08:00:07.220Z WARN  db          retrying query (attempt 2/3)
+2026-06-19T08:00:08.004Z INFO  db          query succeeded on retry (attempt 2/3) took=712ms
+2026-06-19T08:00:09.555Z INFO  http        POST /v1/orders 201 39ms user=u_9920
+2026-06-19T08:00:10.812Z WARN  auth        invalid token from 198.51.100.7 path=/v1/admin
+2026-06-19T08:00:10.813Z INFO  http        GET /v1/admin 401 2ms
+2026-06-19T08:00:12.443Z INFO  http        GET /healthz 200 1ms
+2026-06-19T08:00:13.901Z DEBUG cache       cache hit key=product:5567 took=0.1ms
+2026-06-19T08:00:14.220Z INFO  http        GET /v1/products/5567 200 4ms
+2026-06-19T08:00:15.668Z ERROR payment     gateway returned 502 for charge ch_44812, will retry
+2026-06-19T08:00:16.002Z INFO  payment     charge ch_44812 succeeded on retry amount=49.99 currency=USD
+2026-06-19T08:00:17.339Z INFO  http        POST /v1/orders 201 51ms user=u_1180
+2026-06-19T08:00:18.774Z WARN  memory      heap usage 82% (656MB/800MB)
+2026-06-19T08:00:19.210Z INFO  http        GET /v1/products 200 22ms
+2026-06-19T08:00:20.455Z INFO  http        DELETE /v1/cart/items/77 204 9ms user=u_8123
+2026-06-19T08:00:21.889Z ERROR db          connection pool exhausted (active=20 max=20), rejecting request
+2026-06-19T08:00:21.890Z INFO  http        POST /v1/orders 503 0ms
+2026-06-19T08:00:23.144Z INFO  db          connection returned to pool (active=19 max=20)
+2026-06-19T08:00:24.601Z INFO  http        GET /healthz 200 1ms
+2026-06-19T08:00:25.998Z INFO  shutdown    received SIGTERM, draining connections
+2026-06-19T08:00:26.512Z INFO  shutdown    all connections drained, exiting cleanly
