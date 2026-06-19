@@ -7,26 +7,15 @@ const Self = @This();
 
 io: std.Io,
 
-/// The state of the reader.
-/// `KEEP_OPEN` keeps the connection opened and polls for changes.
-/// `CLOSE` closes the connection and treats it as a static read.
-state: State,
-
 /// Destination for output. Points to a stdout, an
 /// in-memory buffer, etc.
 writer: *std.Io.Writer,
 
-const State = enum {
-    KEEP_OPEN,
-    CLOSE,
-};
-
 /// Creates a `Reader` bound to `io` and `writer`. Does not touch the
 /// filesystem; files are opened lazily in `read`.
-pub fn init(io: std.Io, writer: *std.Io.Writer, state: State) Self {
+pub fn init(io: std.Io, writer: *std.Io.Writer) Self {
     return .{
         .io = io,
-        .state = state,
         .writer = writer,
     };
 }
@@ -63,14 +52,7 @@ pub fn read(
 
     while (true) {
         const line = reader.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => switch (self.state) {
-                .CLOSE => break,
-                .KEEP_OPEN => {
-                    try self.writer.flush();
-                    try self.io.sleep(.fromMilliseconds(100), .awake);
-                    continue;
-                },
-            },
+            error.EndOfStream => break,
             error.StreamTooLong => {
                 std.log.warn("line {d} exceeds {d} bytes; skipping", .{ line_num + 1, read_buffer.len });
                 _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
@@ -104,7 +86,7 @@ test "skips a line that exceeds the 64 KB limit" {
     defer aw.deinit();
 
     var rb: [64 * 1024]u8 = undefined; // the real production size
-    const r = Self.init(io, &aw.writer, .CLOSE);
+    const r = Self.init(io, &aw.writer);
     try r.read(tmp.dir, "big.log", &rb); // skip → no error
 
     const out = aw.writer.buffered();
@@ -130,13 +112,8 @@ test "read a deliberately long line" {
     defer aw.deinit();
 
     var rb: [1024]u8 = undefined;
-    const r = Self.init(io, &aw.writer, .CLOSE);
+    const r = Self.init(io, &aw.writer);
     try r.read(tmp.dir, filename, &rb);
 
     try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "a" ** 300) != null);
 }
-
-// Accept a sane bounded line boundary; this will effectively limit overflow issues and preserve streaming capabilities.
-// Bump limit to 1024*64 (64kb)
-
-// Instead of having a fixed length, we should use ArrayList() which would act as a dynamic memory allocator
