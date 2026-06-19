@@ -7,15 +7,26 @@ const Self = @This();
 
 io: std.Io,
 
+/// The state of the reader.
+/// `KEEP_OPEN` keeps the connection opened and polls for changes.
+/// `CLOSE` closes the connection and treats it as a static read.
+state: State,
+
 /// Destination for output. Points to a stdout, an
 /// in-memory buffer, etc.
 writer: *std.Io.Writer,
+
+const State = enum {
+    KEEP_OPEN,
+    CLOSE,
+};
 
 /// Creates a `Reader` bound to `io` and `writer`. Does not touch the
 /// filesystem; files are opened lazily in `read`.
 pub fn init(io: std.Io, writer: *std.Io.Writer) Self {
     return .{
         .io = io,
+        .state = .KEEP_OPEN,
         .writer = writer,
     };
 }
@@ -53,7 +64,15 @@ pub fn read(
 
     while (true) {
         _ = reader.peekByte() catch |err| switch (err) {
-            error.EndOfStream => break,
+            error.EndOfStream => switch (self.state) {
+                .CLOSE => break,
+                .KEEP_OPEN => {
+                    try self.writer.flush();
+                    try self.io.sleep(.fromMilliseconds(500), .awake);
+                    std.debug.print("Opened. \n", .{});
+                    continue;
+                },
+            },
             else => return err,
         };
 
