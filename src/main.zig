@@ -2,6 +2,7 @@ const std = @import("std");
 const Reader = @import("Reader.zig");
 
 test {
+    _ = @import("Tailer.zig");
     _ = @import("Reader.zig");
 }
 
