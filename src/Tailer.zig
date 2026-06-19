@@ -2,6 +2,7 @@ const std = @import("std");
 
 path: []const u8,
 file: std.Io.File,
+dir: std.Io.Dir,
 
 skipping: bool,
 
@@ -28,6 +29,7 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []c
         .file = file,
         .skipping = false,
         .offset = 0,
+        .dir = dir,
         .io = io,
         .pending = .empty,
     };
@@ -109,19 +111,26 @@ test "readNew emits whole lines and follows appends" {
     try std.testing.expectEqualStrings("alpha\nbeta\ngamma\n", aw.writer.buffered());
 }
 
-pub fn hasRotated(self: *Self, emit: anytype) !void {
-    _ = self;
-    _ = emit;
+pub fn hasRotated(self: *Self) !bool {
+    const stat = try self.dir.statFile(self.io, self.path, .{});
+    return stat.inode != self.inode;
 }
 
 pub fn wasTruncated(self: *Self) !bool {
-    _ = self;
+    const stat = try self.file.stat(self.io);
+    return stat.size < self.offset;
 }
 
 pub fn reopen(self: *Self) !void {
-    _ = self;
+    self.file.close(self.io);
+    self.file = try self.dir.openFile(self.io, self.path, .{ .mode = .read_only });
+    const stat = try self.file.stat(self.io);
+    self.inode = stat.inode;
+    self.offset = 0;
+    self.pending.clearRetainingCapacity();
 }
 
 pub fn rewind(self: *Self) !void {
-    _ = self;
+    self.offset = 0;
+    self.pending.clearRetainingCapacity();
 }
