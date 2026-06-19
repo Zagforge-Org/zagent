@@ -17,8 +17,8 @@ const Self = @This();
 
 const MAX_LINE: u32 = 64 * 1024;
 
-pub fn open(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Self {
-    const file = try std.Io.Dir.openFile(io, path, .{ .mode = .read_only });
+pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []const u8) !Self {
+    const file = try dir.openFile(io, path, .{ .mode = .read_only });
     const stat = try file.stat(io);
 
     return .{
@@ -40,9 +40,7 @@ pub fn deinit(self: *Self) void {
 
 // Keep inclusive since we already have this pattern going on Reader.zig
 // pending growth should be limited with 64kb limit.
-//
-//
-pub fn readNew(self: *Self, emit: fn ([]u8) void) !void {
+pub fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     if (self.pending.items.len > MAX_LINE) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{MAX_LINE});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -72,7 +70,7 @@ pub fn readNew(self: *Self, emit: fn ([]u8) void) !void {
     var start: usize = 0;
 
     while (std.mem.indexOfScalarPos(u8, self.pending.items, start, '\n')) |newline| {
-        try emit(self.pending.items[start .. newline + 1]);
+        try writer.writeAll(self.pending.items[start .. newline + 1]);
         start = newline + 1;
     }
 
@@ -81,6 +79,34 @@ pub fn readNew(self: *Self, emit: fn ([]u8) void) !void {
         @memmove(self.pending.items[0..rest], self.pending.items[start..]);
         self.pending.shrinkRetainingCapacity(rest);
     }
+}
+
+test "readNew emits whole lines and follows appends" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const filename = "tail.log";
+    try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = "alpha\nbeta\n" });
+
+    var aw = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer aw.deinit();
+
+    var t = try Self.open(std.testing.allocator, io, tmp.dir, filename);
+    defer t.deinit();
+
+    // first poll: both complete lines come out
+    try t.readNew(&aw.writer);
+    try std.testing.expectEqualStrings("alpha\nbeta\n", aw.writer.buffered());
+
+    // append a third line to the same file (same inode), at the current end
+    var wf = try tmp.dir.openFile(io, filename, .{ .mode = .write_only });
+    defer wf.close(io);
+    try wf.writePositionalAll(io, "gamma\n", "alpha\nbeta\n".len);
+
+    // second poll: only the newly appended line is emitted, numbering/offset continues
+    try t.readNew(&aw.writer);
+    try std.testing.expectEqualStrings("alpha\nbeta\ngamma\n", aw.writer.buffered());
 }
 
 pub fn hasRotated(self: *Self, emit: anytype) !void {
