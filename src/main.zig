@@ -1,5 +1,4 @@
 const std = @import("std");
-const Io = std.Io;
 const Reader = @import("Reader.zig");
 
 test {
@@ -10,9 +9,9 @@ pub fn main(init: std.process.Init) !void {
     var write_buffer: [256]u8 = undefined;
     var file_writer = std.Io.File.stdout().writer(init.io, &write_buffer);
 
-    const r = Reader.init("logs/sample.log");
+    const r = Reader.init(init.io, &file_writer.interface);
 
-    r.read(init.io, std.Io.Dir.cwd(), &file_writer.interface) catch {
+    r.read(std.Io.Dir.cwd(), "logs/sample.log") catch {
         std.process.exit(1);
     };
 }

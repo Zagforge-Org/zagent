@@ -1,28 +1,52 @@
+//! Reads a file line by line and writes each line to a writer.
+//! Lines may exceed internal read buffer since content is streamed
+//! through to the writer rather than buffered.
+
 const std = @import("std");
 const Self = @This();
 
-path: []const u8,
+io: std.Io,
 
-pub fn init(path: []const u8) Self {
+/// Destination for output. Points to a stdout, an
+/// in-memory buffer, etc.
+writer: *std.Io.Writer,
+
+/// Creates a `Reader` bound to `io` and `writer`. Does not touch the
+/// filesystem; files are opened lazily in `read`.
+pub fn init(io: std.Io, writer: *std.Io.Writer) Self {
     return .{
-        .path = path,
+        .io = io,
+        .writer = writer,
     };
 }
 
-pub fn read(self: *const Self, io: std.Io, dir: std.Io.Dir, w: *std.Io.Writer) !void {
+/// Opens `path` under `dir` and writes each line to `self.writer`, prefixed
+/// with its 1-based line number.
+///
+/// Parameters:
+/// - `dir`:  directory `path` is resolved against (e.g. `std.Io.Dir.cwd()`).
+/// - `path`: file path relative to `dir`.
+///
+/// Returns an error if the file cannot be opened or a read fails. A final line
+/// without a trailing newline is still emitted with one.
+pub fn read(
+    self: *const Self,
+    dir: std.Io.Dir,
+    path: []const u8,
+) !void {
     var read_buffer: [256]u8 = undefined;
-    var file = dir.openFile(io, self.path, .{ .mode = .read_only }) catch |err| {
+    var file = dir.openFile(self.io, path, .{ .mode = .read_only }) catch |err| {
         switch (err) {
-            error.FileNotFound => std.log.err("File not found: {s}", .{self.path}),
-            error.AccessDenied => std.log.err("Access denied: {s}", .{self.path}),
-            else => std.log.err("Failed to open {s}: {s}", .{ self.path, @errorName(err) }),
+            error.FileNotFound => std.log.err("File not found: {s}", .{path}),
+            error.AccessDenied => std.log.err("Access denied: {s}", .{path}),
+            else => std.log.err("Failed to open {s}: {s}", .{ path, @errorName(err) }),
         }
         return err;
     };
 
-    defer file.close(io);
+    defer file.close(self.io);
 
-    var file_reader = file.reader(io, &read_buffer);
+    var file_reader = file.reader(self.io, &read_buffer);
     var reader = &file_reader.interface;
 
     var line_num: u32 = 0;
@@ -35,32 +59,32 @@ pub fn read(self: *const Self, io: std.Io, dir: std.Io.Dir, w: *std.Io.Writer) !
 
         line_num += 1;
 
-        try w.print("Current line: {d}: ", .{line_num});
+        try self.writer.print("Current line: {d}: ", .{line_num});
 
-        _ = reader.streamDelimiter(w, '\n') catch |err| {
+        _ = reader.streamDelimiter(self.writer, '\n') catch |err| {
             switch (err) {
                 error.EndOfStream => {
-                    try w.writeByte('\n');
+                    try self.writer.writeByte('\n');
                     break;
                 },
                 error.ReadFailed => {
-                    std.log.err("Failed to read bytes stream: {s}", .{self.path});
+                    std.log.err("Failed to read bytes stream: {s}", .{path});
                     return err;
                 },
                 else => {
-                    std.log.err("Failed to stream bytes: {s} : {s}", .{ self.path, @errorName(err) });
+                    std.log.err("Failed to stream bytes: {s} : {s}", .{ path, @errorName(err) });
                     return err;
                 },
             }
         };
 
-        try w.writeByte('\n');
+        try self.writer.writeByte('\n');
 
         // discard '\n' advancing to the next line
         reader.toss(1);
     }
 
-    try w.flush();
+    try self.writer.flush();
 }
 
 test "read a deliberately long line" {
