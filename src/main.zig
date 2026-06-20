@@ -52,60 +52,63 @@ const banner =
     \\
 ;
 
+const help_text =
+    \\zagent — log + metric shipper
+    \\
+    \\usage:
+    \\  zagent [-c PATH]           run the pipeline (default)
+    \\  zagent --init             write a default zagent.config.json
+    \\  zagent --check [-c PATH]  validate the config and exit
+    \\  zagent --version          print the version
+    \\  zagent --help             print this help
+    \\
+    \\options:
+    \\  -c, --config PATH         config file (default: zagent.config.json)
+    \\  -V, --version
+    \\  -h, --help
+    \\
+;
+
+/// Print a user-facing message for a config load/validation failure, then exit.
+fn report(path: []const u8, err: anyerror) noreturn {
+    switch (err) {
+        error.FileNotFound => std.debug.print("config '{s}' not found\n", .{path}),
+        error.AccessDenied => std.debug.print("config '{s}': permission denied\n", .{path}),
+        error.OutOfMemory => std.debug.print("out of memory loading '{s}'\n", .{path}),
+        else => std.debug.print("invalid config '{s}': {t}\n", .{ path, err }),
+    }
+    std.process.exit(1);
+}
+
 pub fn main(init: std.process.Init) !void {
     const args = init.minimal.args;
 
+    // No arguments: show the banner and exit.
     if (args.vector.len == 1) {
         try Writer(init.io, 2048, banner);
+        return;
     }
 
-    var iter = args.iterate();
-    _ = iter.skip(); // skip argv[0]
-
-    const cmd = cli.parse(init.minimal.args) catch |err| {
-        // TODO: PRINT CLI ERROR
-        return err;
+    const cmd = cli.parse(args) catch |err| {
+        std.debug.print("zagent: {t}\n", .{err});
+        std.process.exit(2);
     };
 
     switch (cmd) {
         .version => try Writer(init.io, 64, "zagent " ++ version ++ "\n"),
-        .help => try Writer(init.io, banner),
+        .help => try Writer(init.io, 1024, help_text),
         .init => try config.default(init.gpa, init.io),
         .check => |c| {
-            _ = try config.load(init.gpa, init.io, c.config_path);
+            const parsed = config.Config.loadValidated(init.gpa, init.io, c.config_path) catch |err| report(c.config_path, err);
+            parsed.deinit();
             try Writer(init.io, 32, "config OK\n");
         },
         .run => |c| {
-            const cfg = try config.load(init.gpa, init.io, c.config_path);
-            _ = cfg;
+            const parsed = config.Config.loadValidated(init.gpa, init.io, c.config_path) catch |err| report(c.config_path, err);
+            defer parsed.deinit(); // kept alive for the whole run
+            // TODO: start the pipeline (the commented block below) from parsed.value.
         },
     }
-
-    // while (iter.next()) |arg| {
-    //     // TODO: handle arguments
-
-    //     if (std.mem.eql(u8, arg, "--version")) {
-    //         try Writer(init.io, 64, "zagent " ++ version ++ "\n");
-    //         break;
-    //     }
-
-    //     if (std.mem.eql(u8, arg, "init")) {
-    //         try config.default(init.gpa, init.io);
-    //         break;
-    //     }
-
-    //     if (std.mem.eql(u8, arg, "--config")) {
-    //         break;
-    //     }
-
-    //     // validate configuration
-    //     if (std.mem.eql(u8, arg, "--check")) {
-    //         try config.load(init.gpa, init.io);
-    //         break;
-    //     }
-
-    //     std.debug.print("Invalid flag", .{});
-    // }
 }
 
 // pub fn main(init: std.process.Init) !void {
