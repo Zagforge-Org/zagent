@@ -197,8 +197,8 @@ fn rewind(self: *Self) !void {
 /// truncation, reopens on rotation (treating a missing path as a transient
 /// mid-rotation gap), and polls every 500 ms when caught up. Does not return
 /// under normal operation; only propagates fatal I/O errors.
-pub fn follow(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
-    while (true) {
+pub fn follow(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer, running: *const bool) !void {
+    while (running.*) {
         try self.readNew(writer, ring);
         try writer.flush();
 

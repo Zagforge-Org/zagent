@@ -52,7 +52,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Producer side: follow the file forever, fanning each line out to stdout and
     // the ring. Only returns on a fatal I/O error.
-    t.follow(&file_writer.interface, &ring) catch {
+    t.follow(&file_writer.interface, &ring, &running) catch {
         running = false;
         sample_future.cancel(init.io) catch {};
         export_future.cancel(init.io) catch {};
