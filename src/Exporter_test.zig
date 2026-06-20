@@ -26,7 +26,7 @@ fn testExporter(ring: *RingBuffer) Self {
 }
 
 test "encodeNdjsonGzip serializes records into gzipped NDJSON" {
-    var ring = try RingBuffer.init(testing.allocator, 1);
+    var ring = try RingBuffer.init(testing.allocator, testing.io, 1);
     defer ring.deinit();
 
     var exporter = testExporter(&ring);
@@ -51,7 +51,7 @@ test "encodeNdjsonGzip serializes records into gzipped NDJSON" {
 }
 
 test "encodeNdjsonGzip produces a valid empty stream for no records" {
-    var ring = try RingBuffer.init(testing.allocator, 1);
+    var ring = try RingBuffer.init(testing.allocator, testing.io, 1);
     defer ring.deinit();
 
     var exporter = testExporter(&ring);
@@ -68,7 +68,7 @@ test "encodeNdjsonGzip produces a valid empty stream for no records" {
 }
 
 test "encodeNdjsonGzip JSON-escapes content" {
-    var ring = try RingBuffer.init(testing.allocator, 1);
+    var ring = try RingBuffer.init(testing.allocator, testing.io, 1);
     defer ring.deinit();
 
     var exporter = testExporter(&ring);
