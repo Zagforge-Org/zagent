@@ -17,6 +17,13 @@ const metric_interval_ms = 5000;
 /// Filesystem the Sampler reports disk usage for. TODO: make configurable.
 const metric_disk_path = "/";
 
+/// zagent's semantic version. Keep in sync with `build.zig.zon`.
+const version = "0.0.0";
+comptime {
+    // Fail the build if `version` isn't a valid semver.
+    _ = std.SemanticVersion.parse(version) catch @compileError("`version` must be a valid semantic version");
+}
+
 test {
     _ = @import("producer/Tailer.zig");
     _ = @import("producer/Reader.zig");
@@ -57,6 +64,11 @@ pub fn main(init: std.process.Init) !void {
     while (iter.next()) |arg| {
         // TODO: handle arguments
 
+        if (std.mem.eql(u8, arg, "--version")) {
+            try Writer(init.io, 64, "zagent " ++ version ++ "\n");
+            break;
+        }
+
         if (std.mem.eql(u8, arg, "init")) {
             try config.default(init.gpa, init.io);
             break;
@@ -64,6 +76,10 @@ pub fn main(init: std.process.Init) !void {
 
         // SIGTERM
         if (std.mem.eql(u8, arg, "--kill")) {
+            break;
+        }
+
+        if (std.mem.eql(u8, arg, "--config")) {
             break;
         }
 
