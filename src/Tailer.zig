@@ -64,11 +64,12 @@ pub fn deinit(self: *Self) void {
     self.file.close(self.io);
 }
 
-/// Reads all bytes available since the last call and pushes every now-complete
-/// line into `ring` as a `log` record. The trailing partial line is kept in
-/// `pending` for the next call. A line longer than `MAX_LINE` is dropped and the
-/// reader enters `skipping` mode until the next newline.
-fn readNew(self: *Self, ring: *RingBuffer) !void {
+/// Reads all bytes available since the last call and, for every now-complete
+/// line, echoes it to `writer` (local stdout fan-out) and pushes it into `ring`
+/// as a `log` record for the Exporter to ship. The trailing partial line is kept
+/// in `pending` for the next call. A line longer than `MAX_LINE` is dropped and
+/// the reader enters `skipping` mode until the next newline.
+fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
     if (self.pending.items.len > MAX_LINE) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{MAX_LINE});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -98,9 +99,11 @@ fn readNew(self: *Self, ring: *RingBuffer) !void {
     var start: usize = 0;
 
     while (std.mem.indexOfScalarPos(u8, self.pending.items, start, '\n')) |newline| {
+        const line = self.pending.items[start .. newline + 1];
+        try writer.writeAll(line); // fan-out: local echo
         try ring.push(.{
             .timestamp = std.Io.Timestamp.now(self.io, .real),
-            .content = self.pending.items[start .. newline + 1],
+            .content = line, // push dupes; the Exporter is the ring's sole consumer
             .kind = .log,
         });
         start = newline + 1;
@@ -135,8 +138,11 @@ test "readNew buffers whole lines and follows appends" {
     var t = try Self.open(std.testing.allocator, io, tmp.dir, filename);
     defer t.deinit();
 
+    var discard_buf: [64]u8 = undefined;
+    var discard: std.Io.Writer.Discarding = .init(&discard_buf);
+
     // first poll: both complete lines are buffered as records
-    try t.readNew(&ring);
+    try t.readNew(&discard.writer, &ring);
     try expectPop(&ring, "alpha\n");
     try expectPop(&ring, "beta\n");
     try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
@@ -147,7 +153,7 @@ test "readNew buffers whole lines and follows appends" {
     try wf.writePositionalAll(io, "gamma\n", "alpha\nbeta\n".len);
 
     // second poll: only the newly appended line is buffered, offset continues
-    try t.readNew(&ring);
+    try t.readNew(&discard.writer, &ring);
     try expectPop(&ring, "gamma\n");
     try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
 }
@@ -186,18 +192,14 @@ fn rewind(self: *Self) !void {
     self.pending.clearRetainingCapacity();
 }
 
-/// Follows the file indefinitely: drains and flushes new lines, rewinds on
+/// Follows the file indefinitely: reads new lines (echoing each to `writer` and
+/// enqueuing it on `ring` for the Exporter), flushes the echo, rewinds on
 /// truncation, reopens on rotation (treating a missing path as a transient
 /// mid-rotation gap), and polls every 500 ms when caught up. Does not return
 /// under normal operation; only propagates fatal I/O errors.
 pub fn follow(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
     while (true) {
-        try self.readNew(ring);
-
-        while (ring.pop()) |rec| {
-            try writer.writeAll(rec.content);
-            self.allocator.free(rec.content);
-        }
+        try self.readNew(writer, ring);
         try writer.flush();
 
         if (try self.wasTruncated()) {
