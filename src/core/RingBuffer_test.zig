@@ -242,3 +242,50 @@ test "concurrent producers + consumer: received + dropped == produced" {
     const dropped = ring.stats().dropped;
     try testing.expectEqual(@as(usize, total), received + @as(usize, @intCast(dropped)));
 }
+
+// ── Backpressure policies ───────────────────────────────────────────────────
+
+test "backpressure.drop_newest keeps the oldest and rejects new records" {
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
+    rb.backpressure = .drop_newest;
+    defer rb.deinit();
+
+    try rb.push(rec("a"));
+    try rb.push(rec("b"));
+    try rb.push(rec("c")); // full
+    try rb.push(rec("d")); // rejected
+    try rb.push(rec("e")); // rejected
+
+    try testing.expectEqual(@as(usize, 3), rb.count);
+    try testing.expectEqual(@as(u64, 2), rb.dropped);
+    try expectDrain(&rb, &.{ "a", "b", "c" }); // oldest survive, in order
+}
+
+test "backpressure.block never drops: received == produced, dropped == 0" {
+    const alloc = testing.allocator;
+    const producer_count = 4;
+    const per_producer = 2000;
+    const total = producer_count * per_producer;
+
+    // Tiny capacity vs. `total`, so producers must repeatedly block on the
+    // condition until the consumer frees slots. The proof of correctness:
+    // nothing is dropped and every record is received.
+    var ring = try RingBuffer.init(alloc, testing.io, 64);
+    ring.backpressure = .block;
+    defer ring.deinit();
+
+    var done = std.atomic.Value(bool).init(false);
+    var received: usize = 0;
+
+    const consumer = try std.Thread.spawn(.{}, Consumer.run, .{ &ring, alloc, &done, &received });
+
+    var producers: [producer_count]std.Thread = undefined;
+    for (&producers, 0..) |*t, id| t.* = try std.Thread.spawn(.{}, Producer.run, .{ &ring, id, per_producer });
+    for (&producers) |t| t.join();
+
+    done.store(true, .release);
+    consumer.join();
+
+    try testing.expectEqual(@as(u64, 0), ring.stats().dropped);
+    try testing.expectEqual(@as(usize, total), received);
+}
