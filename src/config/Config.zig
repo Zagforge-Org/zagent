@@ -3,6 +3,9 @@
 //! with some configuration variables providing default values.
 
 const std = @import("std");
+const json = @import("../utils/json.zig");
+
+const configName = "zagent.config.json";
 
 pub const Backpressure = enum {
     drop_oldest,
@@ -12,7 +15,7 @@ pub const Backpressure = enum {
 
 pub const Config = struct {
     // file the tailer follows
-    log_paths: []const u8,
+    log_paths: []const u8 = "",
     max_line_bytes: usize = 65536, // default max-line cap
 
     metric_interval_ms: u64 = 10_000, // sampler tick
@@ -21,7 +24,7 @@ pub const Config = struct {
     buffer_capacity: usize = 10_000, // ring buffer size (records)
     backpressure: Backpressure = .drop_oldest,
 
-    endpoint: []const u8,
+    endpoint: []const u8 = "",
     auth_header: ?[]const u8 = null, // optional ("Bearer", etc.)
     batch_max: usize = 100, // flush at this many records
     batch_ms: u64 = 2_000, // flush this often, whichever first (batch_max or this)
@@ -47,3 +50,27 @@ pub const Config = struct {
         );
     }
 };
+
+/// Initialize a default zagent.config.json
+pub fn default(allocator: std.mem.Allocator, io: std.Io) !void {
+    const file = std.Io.Dir.cwd().createFile(io, configName, .{ .exclusive = true }) catch |err| switch (err) {
+        error.PathAlreadyExists => {
+            std.debug.print("{s} already exists.\n", .{configName});
+            return;
+        },
+        else => return err,
+    };
+    defer file.close(io);
+
+    var buf: [2048]u8 = undefined;
+    var writer = file.writer(io, &buf);
+
+    const defaultConfig = Config{};
+    const serialized = try json.Serialize(allocator, defaultConfig, .{
+        .whitespace = .indent_2,
+    });
+    defer allocator.free(serialized);
+
+    try writer.interface.writeAll(serialized);
+    try writer.interface.flush();
+}

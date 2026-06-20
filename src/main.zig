@@ -4,6 +4,7 @@ const RingBuffer = @import("core/RingBuffer.zig");
 const Exporter = @import("consumer/Exporter.zig");
 const Sampler = @import("producer/Sampler.zig");
 const Writer = @import("utils/writer.zig").Writer;
+const Config = @import("config/Config.zig");
 
 const linux = @import("platform/linux.zig");
 
@@ -28,12 +29,17 @@ test {
 
 const banner =
     \\
-    \\███████╗ █████╗  ██████╗ ███████╗███╗   ██╗████████╗
-    \\╚══███╔╝██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
-    \\  ███╔╝ ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
-    \\ ███╔╝  ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
-    \\███████╗██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
-    \\╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
+    \\                                                888
+    \\                                                888
+    \\                                                888
+    \\   88888888  8888b.   .d88b.   .d88b.  88888b.  888888
+    \\      d88P      "88b d88P"88b d8P  Y8b 888 "88b 888
+    \\     d88P   .d888888 888  888 88888888 888  888 888
+    \\    d88P    888  888 Y88b 888 Y8b.     888  888 Y88b.
+    \\   88888888 "Y888888  "Y88888  "Y8888  888  888  "Y888
+    \\                          888
+    \\                     Y8b d88P
+    \\                      "Y88P"
     \\
 ;
 
@@ -44,11 +50,14 @@ pub fn main(init: std.process.Init) !void {
         try Writer(init.io, 2048, banner);
     }
 
-    const iter = args.iterate();
+    var iter = args.iterate();
 
-    for (iter.next()) |arg| {
-        _ = arg;
+    while (iter.next()) |arg| {
         // TODO: handle arguments
+
+        if (std.mem.eql(u8, arg, "init")) {
+            try Config.default(init.gpa, init.io);
+        }
     }
 }
 
