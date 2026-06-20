@@ -67,11 +67,11 @@ pub fn deinit(self: *Self) void {
     self.client.deinit();
 }
 
-pub fn run(self: *Self, running: *const bool) !void {
+pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
     var batch: std.ArrayList(Record) = .empty;
     defer batch.deinit(self.allocator);
 
-    while (running.*) {
+    while (running.load(.monotonic)) {
         const deadline = std.Io.Timestamp.now(self.io, .awake)
             .addDuration(.fromMilliseconds(@intCast(self.batch_ms)));
 

@@ -11,13 +11,13 @@ const Sampler = @import("../producer/Sampler.zig");
 const Exporter = @import("../consumer/Exporter.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
 
-fn runTailer(t: *Tailer, w: *std.Io.Writer, ring: *RingBuffer, running: *const bool) void {
+fn runTailer(t: *Tailer, w: *std.Io.Writer, ring: *RingBuffer, running: *const std.atomic.Value(bool)) void {
     t.follow(w, ring, running) catch |e| std.log.err("tailer: {t}", .{e});
 }
-fn runSampler(s: *Sampler, running: *const bool) void {
+fn runSampler(s: *Sampler, running: *const std.atomic.Value(bool)) void {
     s.run(running) catch |e| std.log.err("sampler: {t}", .{e});
 }
-fn runExporter(e: *Exporter, running: *const bool) void {
+fn runExporter(e: *Exporter, running: *const std.atomic.Value(bool)) void {
     e.run(running) catch |err| std.log.err("exporter: {t}", .{err});
 }
 
@@ -76,14 +76,14 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     exporter.batch_ms = 50; // ship frequently within the run window
     exporter.min_send_interval_ms = 0;
 
-    var running = true;
+    var running = std.atomic.Value(bool).init(true);
     const t1 = try std.Thread.spawn(.{}, runTailer, .{ &tailer, &discard.writer, &ring, &running });
     const t2 = try std.Thread.spawn(.{}, runSampler, .{ &sampler, &running });
     const t3 = try std.Thread.spawn(.{}, runExporter, .{ &exporter, &running });
 
     // Let all three work against the shared ring, then signal shutdown.
     try io.sleep(.fromMilliseconds(500), .awake);
-    running = false;
+    running.store(false, .monotonic);
     t1.join();
     t2.join();
     t3.join();

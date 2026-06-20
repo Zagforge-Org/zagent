@@ -41,7 +41,7 @@ pub fn main(init: std.process.Init) !void {
     var exporter = Exporter.init(init.gpa, init.io, &ring, endpoint);
     defer exporter.deinit();
 
-    var running = true;
+    var running = std.atomic.Value(bool).init(true);
     var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &running });
 
     // Second producer: snapshot system metrics on an interval into the same
@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
     // Producer side: follow the file forever, fanning each line out to stdout and
     // the ring. Only returns on a fatal I/O error.
     t.follow(&file_writer.interface, &ring, &running) catch {
-        running = false;
+        running.store(false, .monotonic);
         sample_future.cancel(init.io) catch {};
         export_future.cancel(init.io) catch {};
         std.process.exit(1);
@@ -62,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Stop the metric producer first (interrupting its sleep), then let the
     // Exporter drain whatever is left in the ring before it returns.
-    running = false;
+    running.store(false, .monotonic);
     sample_future.cancel(init.io) catch {};
     export_future.await(init.io) catch {};
 }

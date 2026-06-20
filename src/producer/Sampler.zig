@@ -77,8 +77,8 @@ pub fn tick(self: *Self) !void {
     });
 }
 
-pub fn run(self: *Self, running: *const bool) !void {
-    while (running.*) {
+pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
+    while (running.load(.monotonic)) {
         const start = std.Io.Timestamp.now(self.io, .awake);
 
         self.tick() catch |err| std.log.warn("sample failed: {t}", .{err});
