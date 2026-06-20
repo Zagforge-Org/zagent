@@ -7,6 +7,7 @@ const Writer = @import("utils/writer.zig").Writer;
 const config = @import("config/config.zig");
 
 const linux = @import("platform/linux.zig");
+const cli = @import("cli.zig");
 
 /// Where the Exporter ships batches. TODO: make configurable (env/flag).
 const endpoint = "http://localhost:8080/ingest";
@@ -61,36 +62,50 @@ pub fn main(init: std.process.Init) !void {
     var iter = args.iterate();
     _ = iter.skip(); // skip argv[0]
 
-    while (iter.next()) |arg| {
-        // TODO: handle arguments
+    const cmd = cli.parse(init.minimal.args) catch |err| {
+        // TODO: PRINT CLI ERROR
+        return err;
+    };
 
-        if (std.mem.eql(u8, arg, "--version")) {
-            try Writer(init.io, 64, "zagent " ++ version ++ "\n");
-            break;
-        }
-
-        if (std.mem.eql(u8, arg, "init")) {
-            try config.default(init.gpa, init.io);
-            break;
-        }
-
-        // SIGTERM
-        if (std.mem.eql(u8, arg, "--kill")) {
-            break;
-        }
-
-        if (std.mem.eql(u8, arg, "--config")) {
-            break;
-        }
-
-        // validate configuration
-        if (std.mem.eql(u8, arg, "--check")) {
-            try config.load(init.gpa, init.io);
-            break;
-        }
-
-        std.debug.print("Invalid flag", .{});
+    switch (cmd) {
+        .version => try Writer(init.io, 64, "zagent " ++ version ++ "\n"),
+        .help => try Writer(init.io, banner),
+        .init => try config.default(init.gpa, init.io),
+        .check => |c| {
+            _ = try config.load(init.gpa, init.io, c.config_path);
+            try Writer(init.io, 32, "config OK\n");
+        },
+        .run => |c| {
+            const cfg = try config.load(init.gpa, init.io, c.config_path);
+            _ = cfg;
+        },
     }
+
+    // while (iter.next()) |arg| {
+    //     // TODO: handle arguments
+
+    //     if (std.mem.eql(u8, arg, "--version")) {
+    //         try Writer(init.io, 64, "zagent " ++ version ++ "\n");
+    //         break;
+    //     }
+
+    //     if (std.mem.eql(u8, arg, "init")) {
+    //         try config.default(init.gpa, init.io);
+    //         break;
+    //     }
+
+    //     if (std.mem.eql(u8, arg, "--config")) {
+    //         break;
+    //     }
+
+    //     // validate configuration
+    //     if (std.mem.eql(u8, arg, "--check")) {
+    //         try config.load(init.gpa, init.io);
+    //         break;
+    //     }
+
+    //     std.debug.print("Invalid flag", .{});
+    // }
 }
 
 // pub fn main(init: std.process.Init) !void {
