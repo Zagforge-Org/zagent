@@ -52,7 +52,7 @@ test "cpuUtil measures only the interval between two non-trivial snapshots" {
 // ── tick (integration against the host's live /proc + statfs) ───────────────
 
 test "tick pushes one parseable .metric record into the ring" {
-    var ring = try RingBuffer.init(testing.allocator, 4);
+    var ring = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer ring.deinit();
 
     var sampler = Sampler.init(testing.allocator, testing.io, &ring, 1000, "/");
@@ -75,7 +75,7 @@ test "tick pushes one parseable .metric record into the ring" {
 }
 
 test "tick leaves cpu_util null on the first sample, populated on the second" {
-    var ring = try RingBuffer.init(testing.allocator, 4);
+    var ring = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer ring.deinit();
 
     var sampler = Sampler.init(testing.allocator, testing.io, &ring, 1000, "/");
