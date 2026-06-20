@@ -25,6 +25,7 @@ test {
     _ = @import("platform/linux_test.zig");
     _ = @import("producer/Sampler_test.zig");
     _ = @import("tests/integration_test.zig");
+    _ = @import("config/validation_test.zig");
 }
 
 const banner =
