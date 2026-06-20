@@ -33,11 +33,17 @@ dropped: u64,
 /// Represents how many records are currently alive.
 count: usize,
 
+/// Mutex for thread-safety.
+mutex: std.Io.Mutex = .init,
+
 allocator: std.mem.Allocator,
 
-pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
+io: std.Io,
+
+pub fn init(allocator: std.mem.Allocator, io: std.Io, capacity: usize) !Self {
     return .{
         .allocator = allocator,
+        .io = io,
         .capacity = capacity,
         .storage = try allocator.alloc(Record, capacity),
         .head = 0,
@@ -49,6 +55,10 @@ pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
 
 pub fn push(self: *Self, record: Record) !void {
     const owned = try self.allocator.dupe(u8, record.content);
+
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
     if (self.isFull()) {
         self.allocator.free(self.storage[self.tail].content); // free the evicted line
         self.tail = (self.tail + 1) % self.capacity;
@@ -64,6 +74,9 @@ pub fn push(self: *Self, record: Record) !void {
 /// returned `content` transfers to the caller, who must free it with the same
 /// allocator the buffer was initialized with.
 pub fn pop(self: *Self) ?Record {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
     if (self.isEmpty()) return null;
     const record = self.storage[self.tail];
     self.tail = (self.tail + 1) % self.capacity;
@@ -77,6 +90,12 @@ fn isEmpty(self: *Self) bool {
 
 fn isFull(self: *Self) bool {
     return self.count == self.capacity;
+}
+
+pub fn stats(self: *Self) struct { count: usize, dropped: u64 } {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+    return .{ .count = self.count, .dropped = self.dropped };
 }
 
 /// Frees the backing array and the owned `content` of every record still live
