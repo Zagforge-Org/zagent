@@ -58,6 +58,10 @@ not_full: std.Io.Condition = .init,
 /// Overflow policy. Defaults to drop-oldest.
 backpressure: Backpressure = .drop_oldest,
 
+/// Set by `close`: makes `.block` producers stop waiting
+/// instead of parking forever.
+closed: bool = false,
+
 allocator: std.mem.Allocator,
 
 io: std.Io,
@@ -95,9 +99,16 @@ pub fn push(self: *Self, record: Record) !void {
                 self.dropped += 1;
                 return;
             },
-            // Wait until a consumer frees a slot, then take it.
+            // Wait until a consumer frees a slot or the buffer is closed.
             .block => {
-                while (self.isFull()) self.not_full.waitUncancelable(self.io, &self.mutex);
+                while (self.isFull() and !self.closed) self.not_full.waitUncancelable(self.io, &self.mutex);
+                if (self.isFull()) {
+                    // the consumer is gone; drop
+                    // rather than wait forever
+                    self.allocator.free(owned);
+                    self.dropped += 1;
+                    return;
+                }
                 self.count += 1;
             },
         }
@@ -121,6 +132,15 @@ pub fn pop(self: *Self) ?Record {
     self.count -= 1;
     self.not_full.signal(self.io); // wake a producer blocked in `.block` mode
     return record;
+}
+
+/// Marks the buffer closed and wakes any producer parked in `.block` mode, so a
+/// blocked `push` gives up instead of waiting on a consumer that has stopped.
+pub fn close(self: *Self) void {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+    self.closed = true;
+    self.not_full.broadcast(self.io);
 }
 
 fn isEmpty(self: *Self) bool {
