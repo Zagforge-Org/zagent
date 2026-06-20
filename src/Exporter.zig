@@ -10,15 +10,35 @@ const Self = @This();
 
 allocator: std.mem.Allocator,
 io: std.Io,
+
+/// Ring buffer for the exporter implementation.
 buffer: *RingBuffer,
+
 client: std.http.Client,
 
+/// endpoint represents a POST endpoint which is
+/// wired for metrics or logs.
 endpoint: []const u8,
+
+/// auth_header is an optional header which is commonly
+/// associated with Authorization.
 auth_header: ?[]const u8,
 
+/// batch_max is the maximum size of items we can hold
+/// per batch request we send.
 batch_max: usize,
+
+/// batch_ms acts as a deadline for threshold accumulation.
 batch_ms: u64,
+
+/// max_retries is the number of maximum retries before timing out.
 max_retries: u32,
+
+/// Minimum time between start of consecutive sends.
+min_send_interval_ms: u64,
+
+/// awake (monotonic) timestamp of the last send start.
+last_send: std.Io.Timestamp,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io, buffer: *RingBuffer, endpoint: []const u8) Self {
     return .{
@@ -29,6 +49,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, buffer: *RingBuffer, endpo
         .auth_header = null,
         .batch_max = 100,
         .batch_ms = 2000,
+        .min_send_interval_ms = 200,
+        .last_send = .zero,
         .max_retries = 5,
         .client = std.http.Client{ .allocator = allocator, .io = io },
     };
@@ -59,6 +81,16 @@ pub fn run(self: *Self, running: *const bool) !void {
 
         if (batch.items.len == 0) continue;
 
+        // Rate limit: pace sends so a backlog/burst can't hammer a healthy
+        // server.
+        const now = std.Io.Timestamp.now(self.io, .awake);
+        const elapsed_ms = self.last_send.durationTo(now).toMilliseconds();
+        const interval_ms: i64 = @intCast(self.min_send_interval_ms);
+        if (elapsed_ms < interval_ms) {
+            try self.io.sleep(.fromMilliseconds(interval_ms - elapsed_ms), .awake);
+        }
+        self.last_send = std.Io.Timestamp.now(self.io, .awake);
+
         // Serialize -> gzip -> POST (with retry). On permanent failure we
         // log and drop THIS batch; everything else keeps buffering upstream.
         self.shipBatch(batch.items) catch |err| {
@@ -71,6 +103,8 @@ pub fn run(self: *Self, running: *const bool) !void {
     }
 }
 
+/// shipBatch sends a `POST` request to a specified `endpoint`
+/// with retry logic and exponential backoff.
 fn shipBatch(self: *Self, records: []const Record) !void {
     const body = try self.encodeNdjsonGzip(records);
     defer self.allocator.free(body);
@@ -92,7 +126,11 @@ fn shipBatch(self: *Self, records: []const Record) !void {
     }
 }
 
-fn postOnce(self: *Self, body: []const u8) !u16 {
+/// Send a `POST` request to a log/metric ingestion endpoint
+/// with a optionally provided body depending on
+/// API specifications.
+/// returns a status code.
+fn postOnce(self: *Self, body: ?[]const u8) !u16 {
     const result = try self.client.fetch(.{
         .method = .POST,
         .location = .{ .url = self.endpoint },
@@ -106,6 +144,7 @@ fn postOnce(self: *Self, body: []const u8) !u16 {
     return @intFromEnum(result.status);
 }
 
+/// Encodes JSON data to a Gzip compressed representation.
 fn encodeNdjsonGzip(self: *Self, records: []const Record) ![]u8 {
     // Build the newline-delimited JSON payload: one minified object per line.
     var raw: std.ArrayList(u8) = .empty;
