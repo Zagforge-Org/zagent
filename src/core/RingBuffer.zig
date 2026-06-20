@@ -1,7 +1,8 @@
-//! A fixed-capacity thread-safe FIFO ring buffer that decouples the pipeline producers.
-//! `push` and `pop` operations are O(1) over a fixed array using tail | head cursors.
-//! When full capacity `push` evicts the OLDEST record instead of blocking keeping
-//! memory bounded.
+//! A fixed-capacity thread-safe FIFO ring buffer that decouples the pipeline
+//! producers from the consumer. `push`/`pop` are O(1) over a fixed array using
+//! head/tail cursors, guarded by a mutex. On overflow, `push` follows the
+//! configured `Backpressure` policy: evict the oldest, drop the newest, or block
+//! the producer until the consumer frees a slot.
 
 const std = @import("std");
 
@@ -9,6 +10,16 @@ const std = @import("std");
 const Kind = enum {
     log,
     metric,
+};
+
+/// Overflow policy applied by `push` when the buffer is full.
+pub const Backpressure = enum {
+    /// Evict the oldest record to make room. Bounded, lossy.
+    drop_oldest,
+    /// Reject the incoming record. Bounded, lossy.
+    drop_newest,
+    /// Block the producer until the consumer frees a slot. Bounded, lossless.
+    block,
 };
 
 /// A record is a structure with a timestamp, content, and a kind.
@@ -41,6 +52,12 @@ count: usize,
 /// Mutex for thread-safety.
 mutex: std.Io.Mutex = .init,
 
+/// Signaled by `pop` when a slot frees; awaited by `push` in `.block` mode.
+not_full: std.Io.Condition = .init,
+
+/// Overflow policy. Defaults to drop-oldest.
+backpressure: Backpressure = .drop_oldest,
+
 allocator: std.mem.Allocator,
 
 io: std.Io,
@@ -65,9 +82,25 @@ pub fn push(self: *Self, record: Record) !void {
     defer self.mutex.unlock(self.io);
 
     if (self.isFull()) {
-        self.allocator.free(self.storage[self.tail].content); // free the evicted line
-        self.tail = (self.tail + 1) % self.capacity;
-        self.dropped += 1;
+        switch (self.backpressure) {
+            // Evict the oldest to make room.
+            .drop_oldest => {
+                self.allocator.free(self.storage[self.tail].content);
+                self.tail = (self.tail + 1) % self.capacity;
+                self.dropped += 1;
+            },
+            // Reject the incoming record.
+            .drop_newest => {
+                self.allocator.free(owned);
+                self.dropped += 1;
+                return;
+            },
+            // Wait until a consumer frees a slot, then take it.
+            .block => {
+                while (self.isFull()) self.not_full.waitUncancelable(self.io, &self.mutex);
+                self.count += 1;
+            },
+        }
     } else {
         self.count += 1;
     }
@@ -86,6 +119,7 @@ pub fn pop(self: *Self) ?Record {
     const record = self.storage[self.tail];
     self.tail = (self.tail + 1) % self.capacity;
     self.count -= 1;
+    self.not_full.signal(self.io); // wake a producer blocked in `.block` mode
     return record;
 }
 
