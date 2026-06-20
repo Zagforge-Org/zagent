@@ -6,10 +6,10 @@ const std = @import("std");
 const testing = std.testing;
 const net = std.Io.net;
 
-const Tailer = @import("Tailer.zig");
-const Sampler = @import("Sampler.zig");
-const Exporter = @import("Exporter.zig");
-const RingBuffer = @import("RingBuffer.zig");
+const Tailer = @import("../producer/Tailer.zig");
+const Sampler = @import("../producer/Sampler.zig");
+const Exporter = @import("../consumer/Exporter.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
 
 fn runTailer(t: *Tailer, w: *std.Io.Writer, ring: *RingBuffer, running: *const bool) void {
     t.follow(w, ring, running) catch |e| std.log.err("tailer: {t}", .{e});

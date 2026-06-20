@@ -4,7 +4,7 @@
 //! split across reads is never emitted half-written.
 
 const std = @import("std");
-const RingBuffer = @import("RingBuffer.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
 
 /// Path of the file being followed.
 path: []const u8,

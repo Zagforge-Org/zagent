@@ -2,9 +2,9 @@ const std = @import("std");
 const testing = std.testing;
 
 const Sampler = @import("Sampler.zig");
-const RingBuffer = @import("RingBuffer.zig");
-const linux = @import("linux.zig");
-const json = @import("json.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
+const linux = @import("../platform/linux.zig");
+const json = @import("../utils/json.zig");
 
 const CpuTimes = linux.CpuTimes;
 const Sample = Sampler.Sample;

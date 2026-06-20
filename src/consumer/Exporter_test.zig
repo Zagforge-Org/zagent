@@ -1,6 +1,6 @@
 const std = @import("std");
 const flate = std.compress.flate;
-const RingBuffer = @import("RingBuffer.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
 const Record = RingBuffer.Record;
 
 /// The unit under test. Imported as `Self` to match the method-call style used

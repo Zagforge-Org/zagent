@@ -2,9 +2,9 @@
 //! statistics, and kernel-level information.
 
 const std = @import("std");
-const RingBuffer = @import("RingBuffer.zig");
-const linux = @import("linux.zig");
-const json = @import("json.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
+const linux = @import("../platform/linux.zig");
+const json = @import("../utils/json.zig");
 
 allocator: std.mem.Allocator,
 io: std.Io,

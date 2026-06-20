@@ -5,9 +5,9 @@
 
 const std = @import("std");
 const flate = std.compress.flate;
-const RingBuffer = @import("RingBuffer.zig");
+const RingBuffer = @import("../core/RingBuffer.zig");
 const Record = RingBuffer.Record;
-const json = @import("json.zig");
+const json = @import("../utils/json.zig");
 
 const serializeJson = json.Serialize;
 

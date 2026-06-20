@@ -1,10 +1,10 @@
 const std = @import("std");
-const Tailer = @import("Tailer.zig");
-const RingBuffer = @import("RingBuffer.zig");
-const Exporter = @import("Exporter.zig");
-const Sampler = @import("Sampler.zig");
+const Tailer = @import("producer/Tailer.zig");
+const RingBuffer = @import("core/RingBuffer.zig");
+const Exporter = @import("consumer/Exporter.zig");
+const Sampler = @import("producer/Sampler.zig");
 
-const linux = @import("linux.zig");
+const linux = @import("platform/linux.zig");
 
 /// Where the Exporter ships batches. TODO: make configurable (env/flag).
 const endpoint = "http://localhost:8080/ingest";
@@ -16,13 +16,13 @@ const metric_interval_ms = 5000;
 const metric_disk_path = "/";
 
 test {
-    _ = @import("Tailer.zig");
-    _ = @import("Reader.zig");
-    _ = @import("RingBuffer_test.zig");
-    _ = @import("Exporter_test.zig");
-    _ = @import("linux_test.zig");
-    _ = @import("Sampler_test.zig");
-    _ = @import("integration_test.zig");
+    _ = @import("producer/Tailer.zig");
+    _ = @import("producer/Reader.zig");
+    _ = @import("core/RingBuffer_test.zig");
+    _ = @import("consumer/Exporter_test.zig");
+    _ = @import("platform/linux_test.zig");
+    _ = @import("producer/Sampler_test.zig");
+    _ = @import("tests/integration_test.zig");
 }
 
 pub fn main(init: std.process.Init) !void {
