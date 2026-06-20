@@ -132,7 +132,7 @@ test "readNew buffers whole lines and follows appends" {
     const filename = "tail.log";
     try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = "alpha\nbeta\n" });
 
-    var ring = try RingBuffer.init(std.testing.allocator, 8);
+    var ring = try RingBuffer.init(std.testing.allocator, io, 8);
     defer ring.deinit();
 
     var t = try Self.open(std.testing.allocator, io, tmp.dir, filename);

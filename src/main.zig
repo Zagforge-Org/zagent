@@ -28,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
     var write_buffer: [1024]u8 = undefined;
     var file_writer = std.Io.File.stdout().writer(init.io, &write_buffer);
 
-    var ring = try RingBuffer.init(init.gpa, 1024);
+    var ring = try RingBuffer.init(init.gpa, init.io, 1024);
     defer ring.deinit();
 
     var t = try Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), "logs/app.log");
