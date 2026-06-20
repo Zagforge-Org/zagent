@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const json = @import("../utils/json.zig");
+const validation = @import("validation.zig");
 
 const configName = "zagent.config.json";
 
@@ -50,6 +51,37 @@ pub const Config = struct {
         );
     }
 };
+
+/// Load the zagent.config.json configuration file.
+pub fn load(allocator: std.mem.Allocator, io: std.Io) !void {
+    const file = std.Io.Dir.cwd().openFile(io, configName, .{ .mode = .read_only }) catch |err| switch (err) {
+        error.FileNotFound => {
+            std.debug.print("{s} does not exist\n", .{configName});
+            return;
+        },
+
+        else => return err,
+    };
+    defer file.close(io);
+
+    var buf: [2048]u8 = undefined;
+    const n = try file.readPositionalAll(io, &buf, 0);
+
+    if (n == 0) {
+        std.debug.print("{s} is empty.", .{configName});
+        return;
+    }
+
+    const config = try json.Deserialize(allocator, Config, buf[0..n]);
+    defer config.deinit(); // frees the Parsed arena owned by json.Deserialize
+
+    validation.validate(config.value) catch |err| {
+        std.debug.print("invalid config: {t}\n", .{err});
+        return err;
+    };
+
+    std.debug.print("config OK\n", .{});
+}
 
 /// Initialize a default zagent.config.json
 pub fn default(allocator: std.mem.Allocator, io: std.Io) !void {
