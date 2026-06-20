@@ -133,6 +133,7 @@ pub fn main(init: std.process.Init) !void {
             defer exporter.deinit();
 
             var running = std.atomic.Value(bool).init(true);
+            linux.installSignalHandlers(&running);
             var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &running });
 
             // Second producer: sample system metrics on an interval into the ring.
