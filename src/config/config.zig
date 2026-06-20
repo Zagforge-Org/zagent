@@ -8,11 +8,9 @@ const validation = @import("validation.zig");
 
 const configName = "zagent.config.json";
 
-pub const Backpressure = enum {
-    drop_oldest,
-    drop_newest,
-    block,
-};
+/// Re-exported from RingBuffer so the config schema
+/// and the buffer share a single enum.
+pub const Backpressure = @import("../core/RingBuffer.zig").Backpressure;
 
 pub const Config = struct {
     // file the tailer follows
