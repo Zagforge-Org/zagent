@@ -114,12 +114,14 @@ pub fn main(init: std.process.Init) !void {
             var file_writer = std.Io.File.stdout().writer(init.io, &write_buffer);
 
             var ring = try RingBuffer.init(init.gpa, init.io, cfg.buffer_capacity);
+            ring.backpressure = cfg.backpressure;
             defer ring.deinit();
 
             var t = Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), log_path) catch |err| {
                 std.debug.print("cannot open log file '{s}': {t}\n", .{ log_path, err });
                 std.process.exit(1);
             };
+            t.max_line = cfg.max_line_bytes;
             defer t.deinit();
 
             // Consumer: drain the ring and ship batches on its own task.
