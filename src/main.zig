@@ -4,7 +4,7 @@ const RingBuffer = @import("core/RingBuffer.zig");
 const Exporter = @import("consumer/Exporter.zig");
 const Sampler = @import("producer/Sampler.zig");
 const Writer = @import("utils/writer.zig").Writer;
-const Config = @import("config/Config.zig");
+const config = @import("config/config.zig");
 
 const linux = @import("platform/linux.zig");
 
@@ -51,13 +51,28 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var iter = args.iterate();
+    _ = iter.skip(); // skip argv[0]
 
     while (iter.next()) |arg| {
         // TODO: handle arguments
 
         if (std.mem.eql(u8, arg, "init")) {
-            try Config.default(init.gpa, init.io);
+            try config.default(init.gpa, init.io);
+            break;
         }
+
+        // SIGTERM
+        if (std.mem.eql(u8, arg, "--kill")) {
+            break;
+        }
+
+        // validate configuration
+        if (std.mem.eql(u8, arg, "--check")) {
+            try config.load(init.gpa, init.io);
+            break;
+        }
+
+        std.debug.print("Invalid flag", .{});
     }
 }
 
