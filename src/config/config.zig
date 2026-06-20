@@ -16,7 +16,7 @@ pub const Backpressure = enum {
 
 pub const Config = struct {
     // file the tailer follows
-    log_paths: []const u8 = "",
+    log_paths: ?[]const u8 = null,
     max_line_bytes: usize = 65536, // default max-line cap
 
     metric_interval_ms: u64 = 10_000, // sampler tick
@@ -25,7 +25,7 @@ pub const Config = struct {
     buffer_capacity: usize = 10_000, // ring buffer size (records)
     backpressure: Backpressure = .drop_oldest,
 
-    endpoint: []const u8 = "",
+    endpoint: ?[]const u8 = null,
     auth_header: ?[]const u8 = null, // optional ("Bearer", etc.)
     batch_max: usize = 100, // flush at this many records
     batch_ms: u64 = 2_000, // flush this often, whichever first (batch_max or this)
@@ -68,7 +68,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) !void {
     const n = try file.readPositionalAll(io, &buf, 0);
 
     if (n == 0) {
-        std.debug.print("{s} is empty.", .{configName});
+        std.debug.print("{s} is empty.\n", .{configName});
         return;
     }
 

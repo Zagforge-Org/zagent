@@ -37,14 +37,20 @@ pub const ValidationError = error{
 /// upper bounds that keep downstream casts/shifts/allocations from overflowing.
 pub fn validate(cfg: Config) ValidationError!void {
     // Required fields
-    if (cfg.endpoint.len == 0) return error.EmptyEndpoint;
-    if (cfg.log_paths.len == 0) return error.EmptyLogPaths;
+
+    if (cfg.log_paths) |log_paths| {
+        if (log_paths.len == 0) return error.EmptyLogPaths;
+    }
+
     if (cfg.disk_path.len == 0) return error.EmptyDiskPath;
 
     // Endpoint
-    if (!std.mem.startsWith(u8, cfg.endpoint, "http://") and
-        !std.mem.startsWith(u8, cfg.endpoint, "https://"))
-        return error.EndpointMissingScheme;
+    if (cfg.endpoint) |endpoint| {
+        if (endpoint.len == 0) return error.EmptyEndpoint;
+        if (!std.mem.startsWith(u8, endpoint, "http://") and
+            !std.mem.startsWith(u8, endpoint, "https://"))
+            return error.EndpointMissingScheme;
+    }
 
     // Positive values
     if (cfg.max_line_bytes == 0) return error.ZeroMaxLineBytes;
