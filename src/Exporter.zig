@@ -145,7 +145,7 @@ fn postOnce(self: *Self, body: ?[]const u8) !u16 {
 }
 
 /// Encodes JSON data to a Gzip compressed representation.
-fn encodeNdjsonGzip(self: *Self, records: []const Record) ![]u8 {
+pub fn encodeNdjsonGzip(self: *Self, records: []const Record) ![]u8 {
     // Build the newline-delimited JSON payload: one minified object per line.
     var raw: std.ArrayList(u8) = .empty;
     defer raw.deinit(self.allocator);

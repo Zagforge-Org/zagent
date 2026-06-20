@@ -10,7 +10,7 @@ test {
     _ = @import("Tailer.zig");
     _ = @import("Reader.zig");
     _ = @import("RingBuffer_test.zig");
-    _ = @import("Exporter.zig");
+    _ = @import("Exporter_test.zig");
 }
 
 pub fn main(init: std.process.Init) !void {
