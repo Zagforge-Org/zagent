@@ -289,3 +289,29 @@ test "backpressure.block never drops: received == produced, dropped == 0" {
     try testing.expectEqual(@as(u64, 0), ring.stats().dropped);
     try testing.expectEqual(@as(usize, total), received);
 }
+
+const Blocker = struct {
+    fn run(r: *RingBuffer) void {
+        r.push(rec("b")) catch unreachable; // blocks on a full ring until close()
+    }
+};
+
+test "backpressure.block: close() releases a producer blocked on a full ring" {
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 1);
+    rb.backpressure = .block;
+    defer rb.deinit();
+
+    try rb.push(rec("a")); // capacity 1 -> full
+
+    // Spawn a producer that blocks on a second push (no consumer ever pops).
+    const th = try std.Thread.spawn(.{}, Blocker.run, .{&rb});
+
+    // Without close() this would hang forever; close() must release it. The
+    // outcome is race-free: whether the producer parked first or saw `closed`
+    // immediately, it drops "b" (ring still full) and returns.
+    rb.close();
+    th.join();
+
+    try testing.expectEqual(@as(u64, 1), rb.dropped); // "b" dropped on close
+    try expectPop(&rb, "a"); // "a" survived
+}
