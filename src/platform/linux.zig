@@ -3,6 +3,9 @@
 
 const std = @import("std");
 
+/// Global shared atomic variable depicting the state of the program.
+var g_running: ?*std.atomic.Value(bool) = null;
+
 /// Statfs represents statsfs RAM-based file system for the Linux kernel statistics.
 const Statfs = extern struct {
     type: i64,
@@ -211,4 +214,19 @@ pub fn readCpuTimes(io: std.Io) !CpuTimes {
     var buf: [4096]u8 = undefined;
     const n = try file.readPositionalAll(io, &buf, 0);
     return try CpuTimes.parse(buf[0..n]);
+}
+
+pub fn onSignal(_: std.posix.SIG) callconv(.c) void {
+    if (g_running) |r| r.store(false, .monotonic);
+}
+
+pub fn installSignalHandlers(running: *std.atomic.Value(bool)) void {
+    g_running = running;
+    const act = std.posix.Sigaction{
+        .handler = .{ .handler = onSignal },
+        .mask = std.posix.sigemptyset(),
+        .flags = std.posix.SA.RESTART,
+    };
+    std.posix.sigaction(std.posix.SIG.INT, &act, null);
+    std.posix.sigaction(std.posix.SIG.TERM, &act, null);
 }
