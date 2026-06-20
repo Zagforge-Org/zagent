@@ -1,3 +1,7 @@
+//! The configuration specifications for zagent.
+//! Each specification can be configurable,
+//! with some configuration variables providing default values.
+
 const std = @import("std");
 
 pub const Backpressure = enum {
