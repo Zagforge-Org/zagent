@@ -33,10 +33,11 @@ io: std.Io,
 
 allocator: std.mem.Allocator,
 
-const Self = @This();
+/// Maximum length of a single line; longer lines are dropped. Defaults to
+/// 64 KiB.
+max_line: usize = 64 * 1024,
 
-/// Maximum length of a single line.
-const MAX_LINE: u32 = 64 * 1024;
+const Self = @This();
 
 /// Opens `path` under `dir` and returns a `Tailer` positioned at the start of
 /// the file. Records the file's inode for later rotation detection. The caller
@@ -67,11 +68,11 @@ pub fn deinit(self: *Self) void {
 /// Reads all bytes available since the last call and, for every now-complete
 /// line, echoes it to `writer` (local stdout fan-out) and pushes it into `ring`
 /// as a `log` record for the Exporter to ship. The trailing partial line is kept
-/// in `pending` for the next call. A line longer than `MAX_LINE` is dropped and
+/// in `pending` for the next call. A line longer than `max_line` is dropped and
 /// the reader enters `skipping` mode until the next newline.
 fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
-    if (self.pending.items.len > MAX_LINE) {
-        std.log.warn("line exceeded {d} bytes; skipping.", .{MAX_LINE});
+    if (self.pending.items.len > self.max_line) {
+        std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
         self.pending.clearRetainingCapacity(); // clear out pending cache
         self.skipping = true;
     }
@@ -100,12 +101,17 @@ fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
 
     while (std.mem.indexOfScalarPos(u8, self.pending.items, start, '\n')) |newline| {
         const line = self.pending.items[start .. newline + 1];
-        try writer.writeAll(line); // fan-out: local echo
-        try ring.push(.{
-            .timestamp = std.Io.Timestamp.now(self.io, .real),
-            .content = line, // push dupes; the Exporter is the ring's sole consumer
-            .kind = .log,
-        });
+        if (line.len > self.max_line) {
+            // Over-cap line that arrived whole in this read: drop it, don't ship.
+            std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
+        } else {
+            try writer.writeAll(line); // fan-out: local echo
+            try ring.push(.{
+                .timestamp = std.Io.Timestamp.now(self.io, .real),
+                .content = line, // push dupes.
+                .kind = .log,
+            });
+        }
         start = newline + 1;
     }
 
