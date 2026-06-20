@@ -230,3 +230,9 @@ pub fn installSignalHandlers(running: *std.atomic.Value(bool)) void {
     std.posix.sigaction(std.posix.SIG.INT, &act, null);
     std.posix.sigaction(std.posix.SIG.TERM, &act, null);
 }
+
+/// Clears the registered flag so a late signal can't store into a dead pointer
+/// after the owning `running` goes out of scope.
+pub fn clearSignalHandlers() void {
+    g_running = null;
+}
