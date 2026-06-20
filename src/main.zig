@@ -9,17 +9,8 @@ const config = @import("config/config.zig");
 const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
-/// Where the Exporter ships batches. TODO: make configurable (env/flag).
-const endpoint = "http://localhost:8080/ingest";
-
-/// How often the Sampler snapshots system metrics. TODO: make configurable.
-const metric_interval_ms = 5000;
-
-/// Filesystem the Sampler reports disk usage for. TODO: make configurable.
-const metric_disk_path = "/";
-
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
-const version = "0.0.0";
+const version = "0.0.1";
 comptime {
     // Fail the build if `version` isn't a valid semver.
     _ = std.SemanticVersion.parse(version) catch @compileError("`version` must be a valid semantic version");
@@ -105,50 +96,61 @@ pub fn main(init: std.process.Init) !void {
         },
         .run => |c| {
             const parsed = config.Config.loadValidated(init.gpa, init.io, c.config_path) catch |err| report(c.config_path, err);
-            defer parsed.deinit(); // kept alive for the whole run
-            // TODO: start the pipeline (the commented block below) from parsed.value.
+            defer parsed.deinit(); // the pipeline borrows cfg's strings; keep it alive
+            const cfg = parsed.value;
+
+            // `run` needs a concrete file to tail and an endpoint to ship to;
+            // validation permits these to be null, so require them here.
+            const log_path = cfg.log_paths orelse {
+                std.debug.print("config: `log_paths` is required to run\n", .{});
+                std.process.exit(1);
+            };
+            const ship_endpoint = cfg.endpoint orelse {
+                std.debug.print("config: `endpoint` is required to run\n", .{});
+                std.process.exit(1);
+            };
+
+            var write_buffer: [1024]u8 = undefined;
+            var file_writer = std.Io.File.stdout().writer(init.io, &write_buffer);
+
+            var ring = try RingBuffer.init(init.gpa, init.io, cfg.buffer_capacity);
+            defer ring.deinit();
+
+            var t = Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), log_path) catch |err| {
+                std.debug.print("cannot open log file '{s}': {t}\n", .{ log_path, err });
+                std.process.exit(1);
+            };
+            defer t.deinit();
+
+            // Consumer: drain the ring and ship batches on its own task.
+            var exporter = Exporter.init(init.gpa, init.io, &ring, ship_endpoint);
+            exporter.batch_max = cfg.batch_max;
+            exporter.batch_ms = cfg.batch_ms;
+            exporter.max_retries = cfg.max_retries;
+            exporter.auth_header = cfg.auth_header;
+            defer exporter.deinit();
+
+            var running = std.atomic.Value(bool).init(true);
+            var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &running });
+
+            // Second producer: sample system metrics on an interval into the ring.
+            var sampler = Sampler.init(init.gpa, init.io, &ring, cfg.metric_interval_ms, cfg.disk_path);
+            var sample_future = try init.io.concurrent(Sampler.run, .{ &sampler, &running });
+
+            // Producer: follow the log file forever on this task; returns only on
+            // a fatal I/O error.
+            t.follow(&file_writer.interface, &ring, &running) catch {
+                running.store(false, .monotonic);
+                sample_future.cancel(init.io) catch {};
+                export_future.cancel(init.io) catch {};
+                std.process.exit(1);
+            };
+
+            // Stop the metric producer (interrupting its sleep), then let the
+            // Exporter drain what remains before returning.
+            running.store(false, .monotonic);
+            sample_future.cancel(init.io) catch {};
+            export_future.await(init.io) catch {};
         },
     }
 }
-
-// pub fn main(init: std.process.Init) !void {
-//     var write_buffer: [1024]u8 = undefined;
-//     var file_writer = std.Io.File.stdout().writer(init.io, &write_buffer);
-
-//     var ring = try RingBuffer.init(init.gpa, init.io, 1024);
-//     defer ring.deinit();
-
-//     var t = try Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), "logs/app.log");
-//     defer t.deinit();
-
-//     // Consumer side: the Exporter drains the ring and ships batches. It runs on
-//     // its own concurrent task so it makes progress while `follow` blocks polling
-//     // the file. `running` is the stop flag; clearing it lets `run` return.
-//     var exporter = Exporter.init(init.gpa, init.io, &ring, endpoint);
-//     defer exporter.deinit();
-
-//     var running = std.atomic.Value(bool).init(true);
-//     var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &running });
-
-//     // Second producer: snapshot system metrics on an interval into the same
-//     // ring. Like the Exporter it runs on its own concurrent task; `run` parks
-//     // in `io.sleep` between samples, so shutdown must `cancel` it (not `await`)
-//     // to interrupt that sleep instead of waiting out the interval.
-//     var sampler = Sampler.init(init.gpa, init.io, &ring, metric_interval_ms, metric_disk_path);
-//     var sample_future = try init.io.concurrent(Sampler.run, .{ &sampler, &running });
-
-//     // Producer side: follow the file forever, fanning each line out to stdout and
-//     // the ring. Only returns on a fatal I/O error.
-//     t.follow(&file_writer.interface, &ring, &running) catch {
-//         running.store(false, .monotonic);
-//         sample_future.cancel(init.io) catch {};
-//         export_future.cancel(init.io) catch {};
-//         std.process.exit(1);
-//     };
-
-//     // Stop the metric producer first (interrupting its sleep), then let the
-//     // Exporter drain whatever is left in the ring before it returns.
-//     running.store(false, .monotonic);
-//     sample_future.cancel(init.io) catch {};
-//     export_future.await(init.io) catch {};
-// }
