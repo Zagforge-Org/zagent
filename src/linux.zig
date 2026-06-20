@@ -1,3 +1,6 @@
+//! linux.zig is a small helper library for working with the Linux kernel.
+//! It provides helpful abstractions for reading system resources and statistical data.
+
 const std = @import("std");
 
 /// Statfs represents statsfs RAM-based file system for the Linux kernel statistics.
