@@ -36,7 +36,7 @@ fn expectDrain(rb: *RingBuffer, expected: []const []const u8) !void {
 }
 
 test "push then pop round-trips a single record" {
-    var rb = try RingBuffer.init(testing.allocator, 4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -44,7 +44,7 @@ test "push then pop round-trips a single record" {
 }
 
 test "pop returns records in FIFO order (not LIFO)" {
-    var rb = try RingBuffer.init(testing.allocator, 4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -54,7 +54,7 @@ test "pop returns records in FIFO order (not LIFO)" {
 }
 
 test "pop on empty buffer returns null (fresh and after drain)" {
-    var rb = try RingBuffer.init(testing.allocator, 4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
     defer rb.deinit();
 
     try expectEmpty(&rb);
@@ -65,7 +65,7 @@ test "pop on empty buffer returns null (fresh and after drain)" {
 }
 
 test "cursors wrap without overflow" {
-    var rb = try RingBuffer.init(testing.allocator, 3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
     defer rb.deinit();
 
     // Fill, drain part, refill so head/tail cross the modulo boundary.
@@ -82,7 +82,7 @@ test "cursors wrap without overflow" {
 }
 
 test "exactly full: no drops, count == capacity" {
-    var rb = try RingBuffer.init(testing.allocator, 3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -95,7 +95,7 @@ test "exactly full: no drops, count == capacity" {
 }
 
 test "overflow by one drops the oldest record" {
-    var rb = try RingBuffer.init(testing.allocator, 3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
     defer rb.deinit();
 
     try rb.push(rec("a")); // evicted
@@ -110,7 +110,7 @@ test "overflow by one drops the oldest record" {
 
 test "overflow by many keeps only the last `capacity` records, in order" {
     const cap = 4;
-    var rb = try RingBuffer.init(testing.allocator, cap);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,cap);
     defer rb.deinit();
 
     const total = 2 * cap + 3; // 11
@@ -135,7 +135,7 @@ test "overflow by many keeps only the last `capacity` records, in order" {
 }
 
 test "capacity 1: every push past the first evicts" {
-    var rb = try RingBuffer.init(testing.allocator, 1);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,1);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -150,7 +150,7 @@ test "capacity 1: every push past the first evicts" {
 test "deinit frees live (un-popped) records" {
     // No explicit frees here: deinit must release the content of records left
     // in the buffer, or testing.allocator fails the test.
-    var rb = try RingBuffer.init(testing.allocator, 3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -160,7 +160,7 @@ test "deinit frees live (un-popped) records" {
 }
 
 test "interleaved push/pop stays consistent" {
-    var rb = try RingBuffer.init(testing.allocator, 3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -175,4 +175,70 @@ test "interleaved push/pop stays consistent" {
 
     try testing.expectEqual(@as(u64, 1), rb.dropped);
     try expectDrain(&rb, &.{ "d", "e", "f" });
+}
+
+// ── Concurrency: real OS threads exercising the mutex ───────────────────────
+// Multiple producer threads and one consumer thread race on the ring under the
+// std.Io.Threaded runtime. The invariant that proves nothing is lost or
+// double-counted: every one of the `total` pushed records ends up either popped
+// by the consumer (received) or evicted on overflow (dropped), so
+// `received + dropped == total`. A broken lock would tear the cursors/counters
+// and break that equality (or double-free and crash).
+
+const Producer = struct {
+    fn run(ring: *RingBuffer, id: usize, n: usize) void {
+        var buf: [32]u8 = undefined;
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            // push dupes the content, so reusing `buf` each iteration is fine.
+            const s = std.fmt.bufPrint(&buf, "{d}:{d}", .{ id, i }) catch unreachable;
+            ring.push(.{ .timestamp = undefined, .content = s, .kind = .metric }) catch unreachable;
+        }
+    }
+};
+
+const Consumer = struct {
+    fn run(ring: *RingBuffer, alloc: std.mem.Allocator, done: *std.atomic.Value(bool), received: *usize) void {
+        while (true) {
+            if (ring.pop()) |record| {
+                alloc.free(record.content);
+                received.* += 1;
+            } else if (done.load(.acquire)) {
+                // Producers have joined and the ring drained empty: no more
+                // pushes can arrive, so it is safe to stop.
+                break;
+            }
+        }
+    }
+};
+
+test "concurrent producers + consumer: received + dropped == produced" {
+    // `testing.allocator` is hit from every thread; it is thread-safe in a
+    // multi-threaded test build (DebugAllocator.thread_safe defaults on), which
+    // this test requires anyway since it spawns OS threads.
+    const alloc = testing.allocator;
+
+    const producer_count = 4;
+    const per_producer = 2000;
+    const total = producer_count * per_producer;
+
+    // Small capacity relative to `total` so overflow/eviction happens often —
+    // that exercises the most write-heavy branch of `push` under contention.
+    var ring = try RingBuffer.init(alloc, testing.io, 64);
+    defer ring.deinit();
+
+    var done = std.atomic.Value(bool).init(false);
+    var received: usize = 0;
+
+    const consumer = try std.Thread.spawn(.{}, Consumer.run, .{ &ring, alloc, &done, &received });
+
+    var producers: [producer_count]std.Thread = undefined;
+    for (&producers, 0..) |*t, id| t.* = try std.Thread.spawn(.{}, Producer.run, .{ &ring, id, per_producer });
+    for (&producers) |t| t.join();
+
+    done.store(true, .release);
+    consumer.join();
+
+    const dropped = ring.stats().dropped;
+    try testing.expectEqual(@as(usize, total), received + @as(usize, @intCast(dropped)));
 }
