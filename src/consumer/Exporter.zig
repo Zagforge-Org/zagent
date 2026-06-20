@@ -70,6 +70,7 @@ pub fn deinit(self: *Self) void {
 pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
     var batch: std.ArrayList(Record) = .empty;
     defer batch.deinit(self.allocator);
+    defer self.buffer.close();
 
     while (running.load(.monotonic)) {
         const deadline = std.Io.Timestamp.now(self.io, .awake)
