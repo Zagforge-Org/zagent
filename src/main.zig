@@ -22,6 +22,7 @@ test {
     _ = @import("Exporter_test.zig");
     _ = @import("linux_test.zig");
     _ = @import("Sampler_test.zig");
+    _ = @import("integration_test.zig");
 }
 
 pub fn main(init: std.process.Init) !void {
