@@ -3,6 +3,8 @@ const Tailer = @import("Tailer.zig");
 const RingBuffer = @import("RingBuffer.zig");
 const Exporter = @import("Exporter.zig");
 
+const linux = @import("linux.zig");
+
 /// Where the Exporter ships batches. TODO: make configurable (env/flag).
 const endpoint = "http://localhost:8080/ingest";
 
@@ -11,6 +13,7 @@ test {
     _ = @import("Reader.zig");
     _ = @import("RingBuffer_test.zig");
     _ = @import("Exporter_test.zig");
+    _ = @import("linux_test.zig");
 }
 
 pub fn main(init: std.process.Init) !void {
