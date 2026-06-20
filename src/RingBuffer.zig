@@ -1,3 +1,8 @@
+//! A fixed-capacity thread-safe FIFO ring buffer that decouples the pipeline producers.
+//! `push` and `pop` operations are O(1) over a fixed array using tail | head cursors.
+//! When full capacity `push` evicts the OLDEST record instead of blocking keeping
+//! memory bounded.
+
 const std = @import("std");
 
 /// Kind represents the type of `Record`.

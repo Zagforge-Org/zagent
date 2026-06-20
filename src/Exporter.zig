@@ -1,3 +1,8 @@
+//! Exporter is the consumer counterpart. It drains `RingBuffer`, bundles records into batches,
+//! and ships them to an HTTP ingest POST endpoint compressed to NDJSON.
+//! It reliably retries and is rate-limited.
+//! Runs as a long-lived loop as its own task.
+
 const std = @import("std");
 const flate = std.compress.flate;
 const RingBuffer = @import("RingBuffer.zig");
@@ -9,11 +14,13 @@ const serializeJson = json.Serialize;
 const Self = @This();
 
 allocator: std.mem.Allocator,
+
 io: std.Io,
 
 /// Ring buffer for the exporter implementation.
 buffer: *RingBuffer,
 
+/// HTTP client for sending requests.
 client: std.http.Client,
 
 /// endpoint represents a POST endpoint which is
