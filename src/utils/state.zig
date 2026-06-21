@@ -35,3 +35,24 @@ pub fn readState(io: std.Io, dir: std.Io.Dir, name: []const u8, buf: []u8) !?[]u
     const n = try file.readPositionalAll(io, buf, 0);
     return buf[0..n];
 }
+
+/// Atomically replace `name` in `dir` with `bytes`: the data is written to a
+/// temp file, fsync'd, then renamed over `name`. The rename is the only change
+/// to `name`, so a reader never sees a half-written file, only the
+/// complete old or complete new contents.
+///
+/// Atomic, but not power-loss durable: the rename directory entry itself is not
+/// fsync'd, so a power cut may leave the intact old file. Never corruption.
+pub fn writeAtomic(io: std.Io, dir: std.Io.Dir, name: []const u8, bytes: []const u8) !void {
+    var tmp_buf: u8[256] = undefined;
+    const tmp = try std.fmt.bufPrint(&tmp_buf, "{s}.tmp", .{name});
+
+    {
+        var file = try dir.createFile(io, tmp, .{ .truncate = true });
+        defer file.close(io);
+        try file.writePositionalAll(io, bytes, 0);
+        try file.sync(io); // fsync bytes to disk BEFORE rename
+    }
+
+    try dir.rename(tmp, dir, name, io); // swap atomically into place
+}
