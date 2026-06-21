@@ -5,12 +5,7 @@
 //! the producer until the consumer frees a slot.
 
 const std = @import("std");
-
-/// Kind represents the type of `Record`.
-const Kind = enum {
-    log,
-    metric,
-};
+const Record = @import("Record.zig");
 
 /// Overflow policy applied by `push` when the buffer is full.
 pub const Backpressure = enum {
@@ -20,13 +15,6 @@ pub const Backpressure = enum {
     drop_newest,
     /// Block the producer until the consumer frees a slot. Bounded, lossless.
     block,
-};
-
-/// A record is a structure with a timestamp, content, and a kind.
-pub const Record = struct {
-    timestamp: std.Io.Timestamp,
-    content: []const u8,
-    kind: Kind,
 };
 
 const Self = @This();
