@@ -157,14 +157,22 @@ fn shipBatch(self: *Self, body_ndjson: []const u8) !void {
 /// Send a `POST` to the ingest endpoint.
 /// Returns the HTTP status code.
 fn postOnce(self: *Self, body: ?[]const u8) !u16 {
+    var headers: [3]std.http.Header = .{
+        .{ .name = "content-type", .value = "application/x-ndjson" },
+        .{ .name = "content-encoding", .value = "gzip" },
+        undefined,
+    };
+    var n: usize = 2;
+    if (self.auth_header) |auth| {
+        headers[n] = .{ .name = "authorization", .value = auth };
+        n += 1;
+    }
+
     const result = try self.client.fetch(.{
         .method = .POST,
         .location = .{ .url = self.endpoint },
         .payload = body,
-        .extra_headers = &.{
-            .{ .name = "content-type", .value = "application/x-ndjson" },
-            .{ .name = "content-encoding", .value = "gzip" },
-        },
+        .extra_headers = headers[0..n],
     });
 
     return @intFromEnum(result.status);
