@@ -1,3 +1,10 @@
+//! On disk durable queue is the persistence tier behind the
+//! in-memory `RingBuffer`.
+//! Producers append framed records to `spool/data`.
+//! The consumer then reads, forwards, and advances `spool/cursor` only after a record is delivered.
+//! A crash between send and cursor-commit re-sends the
+//! last batch so downstream must tolerate duplicates.
+
 const std = @import("std");
 const state = @import("utils/state.zig");
 
