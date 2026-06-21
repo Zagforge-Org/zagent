@@ -17,6 +17,7 @@ dir: std.Io.Dir,
 data: std.Io.File,
 write_off: u64,
 read_off: u64,
+acked_off: u64, // last durably-committed read position (for rewind on failure)
 max_bytes: u64,
 mutex: std.Io.Mutex = .init,
 
@@ -45,6 +46,7 @@ pub fn open(io: std.Io, parent: std.Io.Dir, max_bytes: u64) !Self {
         .data = data,
         .write_off = write_off,
         .read_off = read_off,
+        .acked_off = read_off, // cursor on disk == last committed position
         .max_bytes = max_bytes,
     };
 }
@@ -134,6 +136,17 @@ pub fn ack(self: *Self) !void {
     var buf: [20]u8 = undefined;
     const text = try std.fmt.bufPrint(&buf, "{d}", .{self.read_off});
     try state.writeAtomic(self.io, self.dir, cursor_name, text);
+
+    self.acked_off = self.read_off; // now durably committed
+}
+
+/// Roll the in-memory read cursor back to the last acked position, so a batch
+/// that failed to ship is re-read on the next pass instead of skipped. Call on
+/// a permanent send failure (the records stay durably in the spool).
+pub fn rewind(self: *Self) void {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+    self.read_off = self.acked_off;
 }
 
 pub fn deinit(self: *Self) void {
