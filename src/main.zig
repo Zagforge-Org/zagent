@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init) !void {
             var spool = try Spool.open(init.io, state_dir, cfg.spool_max_bytes);
             defer spool.deinit();
 
-            var t = Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), log_path) catch |err| {
+            var t = Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), log_path, &spool, state_dir) catch |err| {
                 std.debug.print("cannot open log file '{s}': {t}\n", .{ log_path, err });
                 std.process.exit(1);
             };
@@ -156,7 +156,7 @@ pub fn main(init: std.process.Init) !void {
 
             // Producer: follow the log file forever on this task; returns only on
             // a fatal I/O error.
-            t.follow(&file_writer.interface, &ring, &running) catch {
+            t.follow(&file_writer.interface, &running) catch {
                 running.store(false, .monotonic);
                 sample_future.cancel(init.io) catch {};
                 export_future.cancel(init.io) catch {};

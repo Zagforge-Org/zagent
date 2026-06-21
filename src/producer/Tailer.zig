@@ -4,7 +4,9 @@
 //! split across reads is never emitted half-written.
 
 const std = @import("std");
-const RingBuffer = @import("../core/RingBuffer.zig");
+const state = @import("../utils/state.zig");
+const Spool = @import("../Spool.zig");
+const wire = @import("../wire.zig");
 
 /// Path of the file being followed.
 path: []const u8,
@@ -29,6 +31,14 @@ offset: u64,
 /// Buffer holding the trailing partial line carried between reads.
 pending: std.ArrayList(u8),
 
+/// Durable queue complete lines are appended to. Coupling the offset checkpoint
+/// to a successful.
+spool: *Spool,
+
+/// Directory holding "tailer.offset" and is rewritten as lines are spooled.
+/// Typically $HOME/.zagent.
+state_dir: std.Io.Dir,
+
 io: std.Io,
 
 allocator: std.mem.Allocator,
@@ -42,9 +52,25 @@ const Self = @This();
 /// Opens `path` under `dir` and returns a `Tailer` positioned at the start of
 /// the file. Records the file's inode for later rotation detection. The caller
 /// owns the result and must call `deinit`.
-pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []const u8) !Self {
+pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []const u8, spool: *Spool, state_dir: std.Io.Dir) !Self {
     const file = try dir.openFile(io, path, .{ .mode = .read_only });
     const stat = try file.stat(io);
+
+    var offset: u64 = 0;
+    var buf: [48]u8 = undefined;
+
+    if (try state.readState(io, state_dir, "tailer.offset", &buf)) |raw| {
+        var it = std.mem.tokenizeScalar(u8, raw, ' ');
+        const inode_str = it.next() orelse return error.BadCheckpoint;
+        const offset_str = it.next() orelse return error.BadCheckpoint;
+
+        const saved_inode = try std.fmt.parseInt(std.posix.ino_t, inode_str, 10);
+        const saved_offset = try std.fmt.parseInt(u64, offset_str, 10);
+
+        if (saved_inode == stat.inode) {
+            offset = saved_offset;
+        }
+    }
 
     return .{
         .allocator = allocator,
@@ -54,6 +80,8 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []c
         .skipping = false,
         .offset = 0,
         .dir = dir,
+        .spool = spool,
+        .state_dir = state_dir,
         .io = io,
         .pending = .empty,
     };
@@ -70,7 +98,7 @@ pub fn deinit(self: *Self) void {
 /// as a `log` record for the Exporter to ship. The trailing partial line is kept
 /// in `pending` for the next call. A line longer than `max_line` is dropped and
 /// the reader enters `skipping` mode until the next newline.
-fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
+fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     if (self.pending.items.len > self.max_line) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -106,11 +134,13 @@ fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
             std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
         } else {
             try writer.writeAll(line); // fan-out: local echo
-            try ring.push(.{
+            const json_line = try wire.toJsonLine(.{
                 .timestamp = std.Io.Timestamp.now(self.io, .real),
-                .content = line, // push dupes.
+                .content = line,
                 .kind = .log,
-            });
+            }, self.allocator);
+            defer self.allocator.free(json_line);
+            _ = try self.spool.append(json_line); // false = spool full (dropped)
         }
         start = newline + 1;
     }
@@ -122,15 +152,15 @@ fn readNew(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer) !void {
     }
 }
 
-/// Pops one record and asserts its content, then frees it (`pop` transfers
-/// ownership of the bytes to us).
-fn expectPop(ring: *RingBuffer, want: []const u8) !void {
-    const rec = ring.pop() orelse return error.UnexpectedEmpty;
-    defer std.testing.allocator.free(rec.content);
-    try std.testing.expectEqualStrings(want, rec.content);
+/// Reads the next spooled record and asserts its JSON line contains `want`
+/// (the record is the `{ts,kind,msg}` line, not the raw content). Frees it.
+fn expectSpooled(spool: *Spool, want: []const u8) !void {
+    const rec = (try spool.next(std.testing.allocator)) orelse return error.UnexpectedEmpty;
+    defer std.testing.allocator.free(rec);
+    try std.testing.expect(std.mem.indexOf(u8, rec, want) != null);
 }
 
-test "readNew buffers whole lines and follows appends" {
+test "readNew spools whole lines and follows appends" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -138,30 +168,30 @@ test "readNew buffers whole lines and follows appends" {
     const filename = "tail.log";
     try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = "alpha\nbeta\n" });
 
-    var ring = try RingBuffer.init(std.testing.allocator, io, 8);
-    defer ring.deinit();
+    var spool = try Spool.open(io, tmp.dir, 64 * 1024 * 1024);
+    defer spool.deinit();
 
-    var t = try Self.open(std.testing.allocator, io, tmp.dir, filename);
+    var t = try Self.open(std.testing.allocator, io, tmp.dir, filename, &spool, tmp.dir);
     defer t.deinit();
 
     var discard_buf: [64]u8 = undefined;
     var discard: std.Io.Writer.Discarding = .init(&discard_buf);
 
-    // first poll: both complete lines are buffered as records
-    try t.readNew(&discard.writer, &ring);
-    try expectPop(&ring, "alpha\n");
-    try expectPop(&ring, "beta\n");
-    try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
+    // first poll: both complete lines are spooled, in order
+    try t.readNew(&discard.writer);
+    try expectSpooled(&spool, "alpha");
+    try expectSpooled(&spool, "beta");
+    try std.testing.expectEqual(@as(?[]u8, null), try spool.next(std.testing.allocator));
 
     // append a third line to the same file (same inode), at the current end
     var wf = try tmp.dir.openFile(io, filename, .{ .mode = .write_only });
     defer wf.close(io);
     try wf.writePositionalAll(io, "gamma\n", "alpha\nbeta\n".len);
 
-    // second poll: only the newly appended line is buffered, offset continues
-    try t.readNew(&discard.writer, &ring);
-    try expectPop(&ring, "gamma\n");
-    try std.testing.expectEqual(@as(?RingBuffer.Record, null), ring.pop());
+    // second poll: only the newly appended line is spooled, offset continues
+    try t.readNew(&discard.writer);
+    try expectSpooled(&spool, "gamma");
+    try std.testing.expectEqual(@as(?[]u8, null), try spool.next(std.testing.allocator));
 }
 
 /// Returns whether `path` now resolves to a different file than the one we hold
@@ -203,9 +233,9 @@ fn rewind(self: *Self) !void {
 /// truncation, reopens on rotation (treating a missing path as a transient
 /// mid-rotation gap), and polls every 500 ms when caught up. Does not return
 /// under normal operation; only propagates fatal I/O errors.
-pub fn follow(self: *Self, writer: *std.Io.Writer, ring: *RingBuffer, running: *const std.atomic.Value(bool)) !void {
+pub fn follow(self: *Self, writer: *std.Io.Writer, running: *const std.atomic.Value(bool)) !void {
     while (running.load(.monotonic)) {
-        try self.readNew(writer, ring);
+        try self.readNew(writer);
         try writer.flush();
 
         if (try self.wasTruncated()) {

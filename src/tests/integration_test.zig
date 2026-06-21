@@ -12,8 +12,8 @@ const Exporter = @import("../consumer/Exporter.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
 const Spool = @import("../Spool.zig");
 
-fn runTailer(t: *Tailer, w: *std.Io.Writer, ring: *RingBuffer, running: *const std.atomic.Value(bool)) void {
-    t.follow(w, ring, running) catch |e| std.log.err("tailer: {t}", .{e});
+fn runTailer(t: *Tailer, w: *std.Io.Writer, running: *const std.atomic.Value(bool)) void {
+    t.follow(w, running) catch |e| std.log.err("tailer: {t}", .{e});
 }
 fn runSampler(s: *Sampler, running: *const std.atomic.Value(bool)) void {
     s.run(running) catch |e| std.log.err("sampler: {t}", .{e});
@@ -65,7 +65,10 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     var ring = try RingBuffer.init(alloc, io, 256);
     defer ring.deinit();
 
-    var tailer = try Tailer.open(alloc, io, tmp.dir, "app.log");
+    var spool = try Spool.open(io, tmp.dir, 1 << 20); // durable tier under the temp dir
+    defer spool.deinit();
+
+    var tailer = try Tailer.open(alloc, io, tmp.dir, "app.log", &spool, tmp.dir);
     defer tailer.deinit();
 
     var discard_buf: [256]u8 = undefined;
@@ -73,15 +76,12 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
 
     var sampler = Sampler.init(alloc, io, &ring, 50, "/"); // ticks several times
 
-    var spool = try Spool.open(io, tmp.dir, 1 << 20); // durable tier under the temp dir
-    defer spool.deinit();
-
     var exporter = Exporter.init(alloc, io, &ring, &spool, "http://127.0.0.1:39517/ingest");
     exporter.batch_ms = 50; // ship frequently within the run window
     exporter.min_send_interval_ms = 0;
 
     var running = std.atomic.Value(bool).init(true);
-    const t1 = try std.Thread.spawn(.{}, runTailer, .{ &tailer, &discard.writer, &ring, &running });
+    const t1 = try std.Thread.spawn(.{}, runTailer, .{ &tailer, &discard.writer, &running });
     const t2 = try std.Thread.spawn(.{}, runSampler, .{ &sampler, &running });
     const t3 = try std.Thread.spawn(.{}, runExporter, .{ &exporter, &running });
 
