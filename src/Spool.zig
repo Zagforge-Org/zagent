@@ -17,7 +17,7 @@ dir: std.Io.Dir,
 data: std.Io.File,
 write_off: u64,
 read_off: u64,
-acked_off: u64, // last durably-committed read position (for rewind on failure)
+acked_off: u64, // last durably-committed read position
 max_bytes: u64,
 mutex: std.Io.Mutex = .init,
 
