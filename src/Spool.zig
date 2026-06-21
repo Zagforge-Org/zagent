@@ -9,28 +9,28 @@ const std = @import("std");
 const state = @import("utils/state.zig");
 
 const Self = @This();
-const date_name = "data";
+const data_name = "data";
 const cursor_name = "cursor";
 
-allocator: std.mem.Allocator,
 io: std.Io,
 dir: std.Io.Dir,
 data: std.Io.File,
 write_off: u64,
 read_off: u64,
 max_bytes: u64,
-mutex: std.Io.Mutex,
+mutex: std.Io.Mutex = .init,
 
 /// Open the spool under `parent`.
 /// Recover any torn tail from a previous crash and load the read cursor.
-pub fn open(allocator: std.mem.Allocator, io: std.Io, parent: std.Io.Dir, max_bytes: u64) !Self {
+pub fn open(io: std.Io, parent: std.Io.Dir, max_bytes: u64) !Self {
     var dir = try parent.createDirPathOpen(io, "spool", .{});
     errdefer dir.close(io);
 
-    const data = try dir.createFile(io, date_name, .{ .read = true, .truncate = false });
+    const data = try dir.createFile(io, data_name, .{ .read = true, .truncate = false });
     errdefer data.close(io);
 
     const write_off = try recoverTail(io, data);
+    try data.setLength(io, write_off); // drop a torn tail left by a previous crash
 
     var cbuf: [32]u8 = undefined;
 
@@ -40,7 +40,6 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, parent: std.Io.Dir, max_by
         0;
 
     return .{
-        .allocator = allocator,
         .io = io,
         .dir = dir,
         .data = data,
@@ -65,4 +64,79 @@ fn recoverTail(io: std.Io, data: std.Io.File) !u64 {
         off = end;
     }
     return off;
+}
+
+/// Append `payload` as a framed record and fsync it.
+/// Returns `false` if it won't fit under `max_bytes`
+pub fn append(self: *Self, payload: []const u8) !bool {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
+    const len: u32 = @intCast(payload.len);
+    const frame_len: u64 = 8 + @as(u64, len);
+
+    if (self.write_off + frame_len > self.max_bytes) return false;
+
+    var hdr: [8]u8 = undefined;
+    std.mem.writeInt(u32, hdr[0..4], len, .little);
+    std.mem.writeInt(u32, hdr[4..8], std.hash.crc.Crc32.hash(payload), .little);
+
+    try self.data.writePositionalAll(self.io, &hdr, self.write_off);
+    try self.data.writePositionalAll(self.io, payload, self.write_off + 8);
+    try self.data.sync(self.io);
+
+    self.write_off += frame_len;
+    return true;
+}
+
+/// Read record at the read cursor into `buf` and advance cursor.
+/// Returns `null` when caught up and errors if the record
+/// exceeds `buf`.
+pub fn next(self: *Self, buf: []u8) !?[]u8 {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
+    if (self.read_off >= self.write_off) return null; // caught up
+
+    var hdr: [8]u8 = undefined;
+    if (try self.data.readPositionalAll(self.io, &hdr, self.read_off) != hdr.len)
+        return error.ShortRead;
+
+    const len = std.mem.readInt(u32, hdr[0..4], .little);
+    const crc = std.mem.readInt(u32, hdr[4..8], .little);
+
+    if (len > buf.len) return error.BufferTooSmall;
+
+    const payload = buf[0..len];
+    if (try self.data.readPositionalAll(self.io, payload, self.read_off + 8) != payload.len)
+        return error.ShortRead;
+
+    if (std.hash.crc.Crc32.hash(payload) != crc) return error.CorruptRecord;
+
+    self.read_off += 8 + @as(u64, len);
+
+    return payload;
+}
+
+/// Durably commit consumption progress by persisting in-memory read
+/// cursor so a restart resumes after records already shipped.
+/// Call once after successful send.
+pub fn ack(self: *Self) !void {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
+    if (self.read_off == self.write_off) {
+        try self.data.setLength(self.io, 0);
+        self.read_off = 0;
+        self.write_off = 0;
+    }
+
+    var buf: [20]u8 = undefined;
+    const text = try std.fmt.bufPrint(&buf, "{d}", .{self.read_off});
+    try state.writeAtomic(self.io, self.dir, cursor_name, text);
+}
+
+pub fn deinit(self: *Self) void {
+    self.data.close(self.io);
+    self.dir.close(self.io);
 }
