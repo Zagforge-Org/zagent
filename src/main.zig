@@ -12,7 +12,7 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
-const version = "0.0.3";
+const version = "0.0.4";
 comptime {
     // Fail the build if `version` isn't a valid semver.
     _ = std.SemanticVersion.parse(version) catch @compileError("`version` must be a valid semantic version");
