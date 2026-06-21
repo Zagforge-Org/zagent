@@ -44,7 +44,7 @@ pub fn readState(io: std.Io, dir: std.Io.Dir, name: []const u8, buf: []u8) !?[]u
 /// Atomic, but not power-loss durable: the rename directory entry itself is not
 /// fsync'd, so a power cut may leave the intact old file. Never corruption.
 pub fn writeAtomic(io: std.Io, dir: std.Io.Dir, name: []const u8, bytes: []const u8) !void {
-    var tmp_buf: u8[256] = undefined;
+    var tmp_buf: [256]u8 = undefined;
     const tmp = try std.fmt.bufPrint(&tmp_buf, "{s}.tmp", .{name});
 
     {
