@@ -91,12 +91,6 @@ test "zero batch_max is rejected" {
     try testing.expectError(error.ZeroBatchMax, validation.validate(c));
 }
 
-test "zero batch_ms is rejected" {
-    var c = validCfg();
-    c.batch_ms = 0;
-    try testing.expectError(error.ZeroBatchMs, validation.validate(c));
-}
-
 // ── cross-field ─────────────────────────────────────────────────────────────
 
 test "batch_max larger than buffer_capacity is rejected" {

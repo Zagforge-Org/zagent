@@ -140,7 +140,6 @@ pub fn main(init: std.process.Init) !void {
             // Consumer: drain the ring and ship batches on its own task.
             var exporter = Exporter.init(init.gpa, init.io, &ring, &spool, ship_endpoint);
             exporter.batch_max = cfg.batch_max;
-            exporter.batch_ms = cfg.batch_ms;
             exporter.max_retries = cfg.max_retries;
             exporter.auth_header = cfg.auth_header;
             defer exporter.deinit();

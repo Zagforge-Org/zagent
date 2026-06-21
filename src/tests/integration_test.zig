@@ -77,7 +77,6 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     var sampler = Sampler.init(alloc, io, &ring, 50, "/"); // ticks several times
 
     var exporter = Exporter.init(alloc, io, &ring, &spool, "http://127.0.0.1:39517/ingest");
-    exporter.batch_ms = 50; // ship frequently within the run window
     exporter.min_send_interval_ms = 0;
 
     var running = std.atomic.Value(bool).init(true);

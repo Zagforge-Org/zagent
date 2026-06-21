@@ -23,14 +23,12 @@ pub const ValidationError = error{
     ZeroMetricInterval,
     ZeroBufferCapacity,
     ZeroBatchMax,
-    ZeroBatchMs,
     ZeroSpoolMaxBytes,
     BatchMaxExceedsCapacity,
     SpoolMaxBytesTooSmall,
     MaxLineBytesTooLarge,
     MetricIntervalTooLarge,
     BufferCapacityTooLarge,
-    BatchMsTooLarge,
     TooManyRetries,
 };
 
@@ -59,7 +57,6 @@ pub fn validate(cfg: Config) ValidationError!void {
     if (cfg.metric_interval_ms == 0) return error.ZeroMetricInterval;
     if (cfg.buffer_capacity == 0) return error.ZeroBufferCapacity;
     if (cfg.batch_max == 0) return error.ZeroBatchMax;
-    if (cfg.batch_ms == 0) return error.ZeroBatchMs;
     if (cfg.spool_max_bytes == 0) return error.ZeroSpoolMaxBytes;
 
     // Cross-field
@@ -76,8 +73,6 @@ pub fn validate(cfg: Config) ValidationError!void {
         return error.MaxLineBytesTooLarge;
     if (cfg.metric_interval_ms > interval_ms_max)
         return error.MetricIntervalTooLarge;
-    if (cfg.batch_ms > interval_ms_max)
-        return error.BatchMsTooLarge;
     if (cfg.buffer_capacity > buffer_capacity_max)
         return error.BufferCapacityTooLarge;
     if (cfg.max_retries > max_retries_max)

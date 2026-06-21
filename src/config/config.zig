@@ -28,7 +28,6 @@ pub const Config = struct {
     endpoint: ?[]const u8 = null,
     auth_header: ?[]const u8 = null, // optional ("Bearer", etc.)
     batch_max: usize = 100, // flush at this many records
-    batch_ms: u64 = 2_000, // flush this often, whichever first (batch_max or this)
     max_retries: u32 = 5,
 
     /// Load and parse config from a JSON file path.

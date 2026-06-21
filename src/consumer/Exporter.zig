@@ -37,9 +37,6 @@ auth_header: ?[]const u8,
 /// Maximum records shipped per request.
 batch_max: usize,
 
-/// Deadline for batch accumulation which is superseded by `min_send_interval_ms`.
-batch_ms: u64,
-
 /// Maximum send retries before dropping a batch attempt.
 max_retries: u32,
 
