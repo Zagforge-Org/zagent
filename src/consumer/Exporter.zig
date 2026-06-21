@@ -55,7 +55,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, buffer: *RingBuffer, spool
         .endpoint = endpoint,
         .auth_header = null,
         .batch_max = 100,
-        .batch_ms = 2000,
         .min_send_interval_ms = 200,
         .last_send = .zero,
         .max_retries = 5,

@@ -116,12 +116,6 @@ test "metric_interval_ms above the ceiling is rejected" {
     try testing.expectError(error.MetricIntervalTooLarge, validation.validate(c));
 }
 
-test "batch_ms above the ceiling is rejected" {
-    var c = validCfg();
-    c.batch_ms = 48 * 60 * 60 * 1000; // > 24h
-    try testing.expectError(error.BatchMsTooLarge, validation.validate(c));
-}
-
 test "buffer_capacity above the ceiling is rejected" {
     var c = validCfg();
     c.buffer_capacity = 20_000_000; // > 10M
