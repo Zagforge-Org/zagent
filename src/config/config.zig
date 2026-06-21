@@ -23,6 +23,8 @@ pub const Config = struct {
     buffer_capacity: usize = 10_000, // ring buffer size (records)
     backpressure: Backpressure = .drop_oldest,
 
+    spool_max_bytes: u64 = 64 * 1024 * 1024, // on-disk durable queue cap (64 MiB)
+
     endpoint: ?[]const u8 = null,
     auth_header: ?[]const u8 = null, // optional ("Bearer", etc.)
     batch_max: usize = 100, // flush at this many records
