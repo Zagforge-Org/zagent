@@ -10,6 +10,7 @@ const RingBuffer = @import("../core/RingBuffer.zig");
 const Spool = @import("../Spool.zig");
 const Record = RingBuffer.Record;
 const json = @import("../utils/json.zig");
+const toJsonLine = @import("../wire.zig").toJsonLine;
 
 const serializeJson = json.Serialize;
 
@@ -124,11 +125,7 @@ pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
 /// Format one record as a minified `{ts,kind,msg}` JSON object and append it
 /// durably to the spool.
 fn spoolRecord(self: *Self, rec: Record) !void {
-    const line = try serializeJson(self.allocator, .{
-        .ts = rec.timestamp.nanoseconds,
-        .kind = @tagName(rec.kind),
-        .msg = rec.content,
-    }, .{ .whitespace = .minified });
+    const line = try toJsonLine(rec, self.allocator);
     defer self.allocator.free(line);
 
     if (!try self.spool.append(line)) {

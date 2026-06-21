@@ -5,7 +5,7 @@
 //! the producer until the consumer frees a slot.
 
 const std = @import("std");
-const Record = @import("Record.zig");
+pub const Record = @import("Record.zig");
 
 /// Overflow policy applied by `push` when the buffer is full.
 pub const Backpressure = enum {
