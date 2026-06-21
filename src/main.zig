@@ -3,8 +3,10 @@ const Tailer = @import("producer/Tailer.zig");
 const RingBuffer = @import("core/RingBuffer.zig");
 const Exporter = @import("consumer/Exporter.zig");
 const Sampler = @import("producer/Sampler.zig");
+const Spool = @import("Spool.zig");
 const Writer = @import("utils/writer.zig").Writer;
 const config = @import("config/config.zig");
+const state = @import("utils/state.zig");
 
 const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
@@ -61,7 +63,7 @@ const help_text =
     \\
 ;
 
-// TODO: disk-spooling + offset checkpointing
+// TODO: tailer offset checkpointing (disk-spooling is wired via Spool)
 
 /// Print a user-facing message for a config load/validation failure, then exit.
 fn report(path: []const u8, err: anyerror) noreturn {
@@ -120,6 +122,14 @@ pub fn main(init: std.process.Init) !void {
             ring.backpressure = cfg.backpressure;
             defer ring.deinit();
 
+            // Durable tier behind the ring: $HOME/.zagent/spool/. Records pass
+            // through here before shipping, so a crash/outage replays them.
+            var state_dir = try state.openStateDir(init.io, init.environ_map);
+            defer state_dir.close(init.io);
+
+            var spool = try Spool.open(init.io, state_dir, cfg.spool_max_bytes);
+            defer spool.deinit();
+
             var t = Tailer.open(init.gpa, init.io, std.Io.Dir.cwd(), log_path) catch |err| {
                 std.debug.print("cannot open log file '{s}': {t}\n", .{ log_path, err });
                 std.process.exit(1);
@@ -128,7 +138,7 @@ pub fn main(init: std.process.Init) !void {
             defer t.deinit();
 
             // Consumer: drain the ring and ship batches on its own task.
-            var exporter = Exporter.init(init.gpa, init.io, &ring, ship_endpoint);
+            var exporter = Exporter.init(init.gpa, init.io, &ring, &spool, ship_endpoint);
             exporter.batch_max = cfg.batch_max;
             exporter.batch_ms = cfg.batch_ms;
             exporter.max_retries = cfg.max_retries;
