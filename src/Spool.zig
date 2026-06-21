@@ -51,8 +51,9 @@ pub fn open(io: std.Io, parent: std.Io.Dir, max_bytes: u64) !Self {
     };
 }
 
-/// Walk records from 0 and return the offset at the end of
-/// the last fully intact record.
+/// Walk records from 0 and return the offset at the end of the last fully
+/// intact record. "Intact" means both the framing fits within the file and
+/// the payload matches its stored CRC.
 fn recoverTail(io: std.Io, data: std.Io.File) !u64 {
     const size = (try data.stat(io)).size;
     var off: u64 = 0;
@@ -61,8 +62,22 @@ fn recoverTail(io: std.Io, data: std.Io.File) !u64 {
     while (off + 8 <= size) {
         if (try data.readPositionalAll(io, &hdr, off) != 8) break;
         const len = std.mem.readInt(u32, hdr[0..4], .little);
+        const crc = std.mem.readInt(u32, hdr[4..8], .little);
         const end = off + 8 + len;
-        if (end > size) break;
+        if (end > size) break; // payload runs past EOF: torn tail
+
+        // Stream the payload through the CRC in chunks so we never allocate.
+        var hasher = std.hash.crc.Crc32.init();
+        var pos = off + 8;
+        var buf: [4096]u8 = undefined;
+        while (pos < end) {
+            const want: usize = @intCast(@min(@as(u64, buf.len), end - pos));
+            if (try data.readPositionalAll(io, buf[0..want], pos) != want) break;
+            hasher.update(buf[0..want]);
+            pos += want;
+        }
+        if (pos != end or hasher.final() != crc) break; // short read or bad CRC: torn tail
+
         off = end;
     }
     return off;
