@@ -125,30 +125,40 @@ fn readNew(self: *Self, writer: *std.Io.Writer) !void {
         try self.pending.appendSlice(self.allocator, buf[0..n]);
     }
 
-    var start: usize = 0;
+    var consumed: usize = 0; // bytes of pending durably in the spool
 
-    while (std.mem.indexOfScalarPos(u8, self.pending.items, start, '\n')) |newline| {
-        const line = self.pending.items[start .. newline + 1];
+    while (std.mem.indexOfScalarPos(u8, self.pending.items, consumed, '\n')) |newline| {
+        const line = self.pending.items[consumed .. newline + 1];
         if (line.len > self.max_line) {
-            // Over-cap line that arrived whole in this read: drop it, don't ship.
+            // over-cap line arrived as a whole in this read
             std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
         } else {
-            try writer.writeAll(line); // fan-out: local echo
+            try writer.writeAll(line); // fan-out
             const json_line = try wire.toJsonLine(.{
                 .timestamp = std.Io.Timestamp.now(self.io, .real),
                 .content = line,
                 .kind = .log,
             }, self.allocator);
+
             defer self.allocator.free(json_line);
-            _ = try self.spool.append(json_line); // false = spool full (dropped)
+            if (!try self.spool.append(json_line)) {
+                // spool full: this line is not durable
+                break;
+            }
         }
-        start = newline + 1;
+        consumed = newline + 1;
     }
 
-    if (start > 0) {
-        const rest = self.pending.items.len - start;
-        @memmove(self.pending.items[0..rest], self.pending.items[start..]);
+    // Compact consumed prefix out of pending leaving partial tail.
+    if (consumed > 0) {
+        const rest = self.pending.items.len - consumed;
+        @memmove(self.pending.items[0..rest], self.pending.items[consumed..]);
         self.pending.shrinkRetainingCapacity(rest);
+
+        const checkpoint = self.offset - rest;
+        var buf: [48]u8 = undefined;
+        const text = try std.fmt.bufPrint(&buf, "{d} {d}", .{ self.inode, checkpoint });
+        try state.writeAtomic(self.io, self.state_dir, "tailer.offset", text);
     }
 }
 
