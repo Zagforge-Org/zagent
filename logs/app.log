@@ -1,8 +1,3 @@
-2026-06-19T08:00:01.412Z INFO  server      Starting api-gateway v1.4.2 (pid=4821, commit=9f3a1c7)
-2026-06-19T08:00:01.498Z INFO  config      Loaded configuration from /etc/gateway/config.toml
-2026-06-19T08:00:01.501Z INFO  server      Listening on 0.0.0.0:8080
-2026-06-19T08:00:02.117Z INFO  http        GET /healthz 200 1ms
-2026-06-19T08:00:03.884Z INFO  http        POST /v1/orders 201 42ms user=u_8123
 2026-06-19T08:00:04.052Z DEBUG cache       cache miss key=product:5567 took=0.3ms
 2026-06-19T08:00:04.061Z INFO  http        GET /v1/products/5567 200 18ms
 2026-06-19T08:00:05.330Z WARN  ratelimit   client 203.0.113.44 approaching limit (92/100 req/min)

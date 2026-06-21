@@ -6,3 +6,5 @@ zig-out/
 .DS_Store
 *.swp
 zagent.config.json
+
+__pycache__
