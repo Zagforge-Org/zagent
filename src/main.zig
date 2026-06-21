@@ -20,6 +20,7 @@ comptime {
 
 test {
     _ = @import("producer/Tailer_test.zig");
+    _ = @import("Spool_test.zig");
     _ = @import("core/RingBuffer_test.zig");
     _ = @import("consumer/Exporter_test.zig");
     _ = @import("platform/linux_test.zig");
