@@ -12,7 +12,6 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Spool reclaimation under sustained backlog
 // Observability into loss
 // Ring and spool crash window
 
