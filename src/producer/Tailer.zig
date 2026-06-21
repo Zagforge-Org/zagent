@@ -78,7 +78,7 @@ pub fn open(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path: []c
         .inode = stat.inode,
         .file = file,
         .skipping = false,
-        .offset = 0,
+        .offset = offset,
         .dir = dir,
         .spool = spool,
         .state_dir = state_dir,
