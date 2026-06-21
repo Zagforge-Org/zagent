@@ -10,6 +10,49 @@ fn expectNext(spool: *Spool, want: []const u8) !void {
     try testing.expectEqualStrings(want, rec);
 }
 
+test "ack compacts the dead prefix, reclaiming space for new appends" {
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // max_bytes 100 → reclaim_threshold 50. Each 12-byte payload frames to 20
+    // bytes, so five records fill the spool exactly.
+    var spool = try Spool.open(io, tmp.dir, 100);
+    defer spool.deinit();
+
+    try testing.expect(try spool.append("AAAAAAAAAAAA"));
+    try testing.expect(try spool.append("BBBBBBBBBBBB"));
+    try testing.expect(try spool.append("CCCCCCCCCCCC"));
+    try testing.expect(try spool.append("DDDDDDDDDDDD"));
+    try testing.expect(try spool.append("EEEEEEEEEEEE"));
+
+    // Full: a further append is rejected (write_off == max_bytes).
+    try testing.expect(!try spool.append("FFFFFFFFFFFF"));
+
+    // Consume three (read_off = 60), leaving D,E unread. ack crosses the
+    // threshold (60 >= 50) with data still pending, so it compacts.
+    try expectNext(&spool, "AAAAAAAAAAAA");
+    try expectNext(&spool, "BBBBBBBBBBBB");
+    try expectNext(&spool, "CCCCCCCCCCCC");
+    try spool.ack();
+
+    // Reclamation freed the dead prefix: the previously-rejected append now fits.
+    try testing.expect(try spool.append("FFFFFFFFFFFF"));
+
+    // The surviving live records remain intact and in order, then the new one.
+    try expectNext(&spool, "DDDDDDDDDDDD");
+    try expectNext(&spool, "EEEEEEEEEEEE");
+    try expectNext(&spool, "FFFFFFFFFFFF");
+    try testing.expectEqual(@as(?[]u8, null), try spool.next(testing.allocator));
+
+    // The compacted file is valid on disk: a reopen recovers D,E,F from byte 0.
+    spool.deinit();
+    spool = try Spool.open(io, tmp.dir, 100);
+    try expectNext(&spool, "DDDDDDDDDDDD");
+    try expectNext(&spool, "EEEEEEEEEEEE");
+    try expectNext(&spool, "FFFFFFFFFFFF");
+}
+
 test "append then drain in FIFO order" {
     const io = testing.io;
     var tmp = testing.tmpDir(.{});
