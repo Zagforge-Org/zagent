@@ -98,7 +98,7 @@ pub fn deinit(self: *Self) void {
 /// as a `log` record for the Exporter to ship. The trailing partial line is kept
 /// in `pending` for the next call. A line longer than `max_line` is dropped and
 /// the reader enters `skipping` mode until the next newline.
-fn readNew(self: *Self, writer: *std.Io.Writer) !void {
+pub fn readNew(self: *Self, writer: *std.Io.Writer) !void {
     if (self.pending.items.len > self.max_line) {
         std.log.warn("line exceeded {d} bytes; skipping.", .{self.max_line});
         self.pending.clearRetainingCapacity(); // clear out pending cache
@@ -160,48 +160,6 @@ fn readNew(self: *Self, writer: *std.Io.Writer) !void {
         const text = try std.fmt.bufPrint(&buf, "{d} {d}", .{ self.inode, checkpoint });
         try state.writeAtomic(self.io, self.state_dir, "tailer.offset", text);
     }
-}
-
-/// Reads the next spooled record and asserts its JSON line contains `want`
-/// (the record is the `{ts,kind,msg}` line, not the raw content). Frees it.
-fn expectSpooled(spool: *Spool, want: []const u8) !void {
-    const rec = (try spool.next(std.testing.allocator)) orelse return error.UnexpectedEmpty;
-    defer std.testing.allocator.free(rec);
-    try std.testing.expect(std.mem.indexOf(u8, rec, want) != null);
-}
-
-test "readNew spools whole lines and follows appends" {
-    const io = std.testing.io;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const filename = "tail.log";
-    try tmp.dir.writeFile(io, .{ .sub_path = filename, .data = "alpha\nbeta\n" });
-
-    var spool = try Spool.open(io, tmp.dir, 64 * 1024 * 1024);
-    defer spool.deinit();
-
-    var t = try Self.open(std.testing.allocator, io, tmp.dir, filename, &spool, tmp.dir);
-    defer t.deinit();
-
-    var discard_buf: [64]u8 = undefined;
-    var discard: std.Io.Writer.Discarding = .init(&discard_buf);
-
-    // first poll: both complete lines are spooled, in order
-    try t.readNew(&discard.writer);
-    try expectSpooled(&spool, "alpha");
-    try expectSpooled(&spool, "beta");
-    try std.testing.expectEqual(@as(?[]u8, null), try spool.next(std.testing.allocator));
-
-    // append a third line to the same file (same inode), at the current end
-    var wf = try tmp.dir.openFile(io, filename, .{ .mode = .write_only });
-    defer wf.close(io);
-    try wf.writePositionalAll(io, "gamma\n", "alpha\nbeta\n".len);
-
-    // second poll: only the newly appended line is spooled, offset continues
-    try t.readNew(&discard.writer);
-    try expectSpooled(&spool, "gamma");
-    try std.testing.expectEqual(@as(?[]u8, null), try spool.next(std.testing.allocator));
 }
 
 /// Returns whether `path` now resolves to a different file than the one we hold
