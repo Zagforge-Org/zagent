@@ -91,10 +91,10 @@ pub fn append(self: *Self, payload: []const u8) !bool {
     return true;
 }
 
-/// Read record at the read cursor into `buf` and advance cursor.
-/// Returns `null` when caught up and errors if the record
-/// exceeds `buf`.
-pub fn next(self: *Self, buf: []u8) !?[]u8 {
+/// Read the record at the read cursor, allocate it, and advance the cursor in
+/// memory (call `ack` to persist, `rewind` to roll back). Returns `null` when
+/// caught up. Caller owns the returned slice and must free it.
+pub fn next(self: *Self, allocator: std.mem.Allocator) !?[]u8 {
     self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
@@ -107,9 +107,8 @@ pub fn next(self: *Self, buf: []u8) !?[]u8 {
     const len = std.mem.readInt(u32, hdr[0..4], .little);
     const crc = std.mem.readInt(u32, hdr[4..8], .little);
 
-    if (len > buf.len) return error.BufferTooSmall;
-
-    const payload = buf[0..len];
+    const payload = try allocator.alloc(u8, len);
+    errdefer allocator.free(payload);
     if (try self.data.readPositionalAll(self.io, payload, self.read_off + 8) != payload.len)
         return error.ShortRead;
 
