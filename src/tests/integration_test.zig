@@ -10,6 +10,7 @@ const Tailer = @import("../producer/Tailer.zig");
 const Sampler = @import("../producer/Sampler.zig");
 const Exporter = @import("../consumer/Exporter.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
+const Spool = @import("../Spool.zig");
 
 fn runTailer(t: *Tailer, w: *std.Io.Writer, ring: *RingBuffer, running: *const std.atomic.Value(bool)) void {
     t.follow(w, ring, running) catch |e| std.log.err("tailer: {t}", .{e});
@@ -72,7 +73,10 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
 
     var sampler = Sampler.init(alloc, io, &ring, 50, "/"); // ticks several times
 
-    var exporter = Exporter.init(alloc, io, &ring, "http://127.0.0.1:39517/ingest");
+    var spool = try Spool.open(io, tmp.dir, 1 << 20); // durable tier under the temp dir
+    defer spool.deinit();
+
+    var exporter = Exporter.init(alloc, io, &ring, &spool, "http://127.0.0.1:39517/ingest");
     exporter.batch_ms = 50; // ship frequently within the run window
     exporter.min_send_interval_ms = 0;
 
