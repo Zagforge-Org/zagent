@@ -60,6 +60,8 @@ const help_text =
     \\
 ;
 
+// TODO: disk-spooling + offset checkpointing
+
 /// Print a user-facing message for a config load/validation failure, then exit.
 fn report(path: []const u8, err: anyerror) noreturn {
     switch (err) {
