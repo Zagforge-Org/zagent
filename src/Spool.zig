@@ -13,13 +13,32 @@ const data_name = "data";
 const cursor_name = "cursor";
 
 io: std.Io,
-dir: std.Io.Dir,
-data: std.Io.File,
-write_off: u64,
-read_off: u64,
-acked_off: u64, // last durably-committed read position
-max_bytes: u64,
+
 mutex: std.Io.Mutex = .init,
+
+dir: std.Io.Dir,
+
+data: std.Io.File,
+
+/// Represents EOF (end of file) where the next append writes.
+/// Everything before it is real records and anything after is empty space.
+write_off: u64,
+
+/// Represents consumer's read head where `next()` reads the next record.
+/// Each `next()` adnvaces it past one frame.
+read_off: u64,
+
+/// Represents dead, shipped and confirmed data.
+/// Anything inside of this block is waste and reclaimed.
+acked_off: u64,
+
+/// Represents the maximum amount of storage
+/// before we start reclaiming space.
+max_bytes: u64,
+
+/// Represents the trigger point for compaction.
+/// Once the threshold is met, we start compacting.
+reclaim_threshold: u64,
 
 /// Open the spool under `parent`.
 /// Recover any torn tail from a previous crash and load the read cursor.
@@ -46,6 +65,7 @@ pub fn open(io: std.Io, parent: std.Io.Dir, max_bytes: u64) !Self {
         .data = data,
         .write_off = write_off,
         .read_off = read_off,
+        .reclaim_threshold = max_bytes / 2,
         .acked_off = read_off, // cursor on disk == last committed position
         .max_bytes = max_bytes,
     };
@@ -81,6 +101,46 @@ fn recoverTail(io: std.Io, data: std.Io.File) !u64 {
         off = end;
     }
     return off;
+}
+
+/// Reclaim the dead prefix `[0, acked_off)` by sliding the live range down to
+/// offset 0 and shrinking the file. Cursor-first ordering: a crash after the cursor write
+/// but before the rename re-ships the dead prefix once.
+/// Not power-loss durable.
+fn compact(self: *Self) !void {
+    const delta = self.read_off;
+
+    if (delta == 0) return;
+
+    // Commit the new read position (0) before touching the data file.
+    try state.writeAtomic(self.io, self.dir, cursor_name, "0");
+
+    var tmp = try self.dir.createFile(self.io, "data.tmp", .{ .read = true, .truncate = true });
+    defer tmp.close(self.io);
+
+    var copied: u64 = 0;
+    const live = self.write_off - delta;
+    var buf: [32 * 1024]u8 = undefined;
+    while (copied < live) {
+        const want: usize = @intCast(@min(buf.len, live - copied));
+        if (try self.data.readPositionalAll(self.io, buf[0..want], delta + copied) != want) {
+            return error.ShortRead;
+        }
+        try tmp.writePositionalAll(self.io, buf[0..want], copied);
+        copied += want;
+    }
+    try tmp.sync(self.io); // fsync temp contents before the rename
+
+    try self.dir.rename("data.tmp", self.dir, data_name, self.io); // atomic swap
+
+    // The old handle points at the now-unlinked inode; reopen the new file.
+    self.data.close(self.io);
+    self.data = try self.dir.createFile(self.io, data_name, .{ .read = true, .truncate = false });
+
+    // Everything shifted down by `delta`.
+    self.write_off -= delta;
+    self.read_off = 0;
+    self.acked_off = 0;
 }
 
 /// Append `payload` as a framed record and fsync it.
@@ -142,16 +202,22 @@ pub fn ack(self: *Self) !void {
     defer self.mutex.unlock(self.io);
 
     if (self.read_off == self.write_off) {
+        // Fully drained: truncate to empty and reset — the cheap fast path.
         try self.data.setLength(self.io, 0);
         self.read_off = 0;
         self.write_off = 0;
+        try state.writeAtomic(self.io, self.dir, cursor_name, "0");
+        self.acked_off = 0;
+    } else if (self.read_off >= self.reclaim_threshold) {
+        // Enough dead prefix accumulated to be worth reclaiming.
+        self.acked_off = self.read_off; // satisfy compact's precondition
+        try self.compact();
+    } else {
+        var buf: [20]u8 = undefined;
+        const text = try std.fmt.bufPrint(&buf, "{d}", .{self.read_off});
+        try state.writeAtomic(self.io, self.dir, cursor_name, text);
+        self.acked_off = self.read_off; // now durably committed
     }
-
-    var buf: [20]u8 = undefined;
-    const text = try std.fmt.bufPrint(&buf, "{d}", .{self.read_off});
-    try state.writeAtomic(self.io, self.dir, cursor_name, text);
-
-    self.acked_off = self.read_off; // now durably committed
 }
 
 /// Roll the in-memory read cursor back to the last acked position, so a batch
