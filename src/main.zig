@@ -11,6 +11,11 @@ const state = @import("utils/state.zig");
 const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
+// TODO:
+// Spool reclaimation under sustained backlog
+// Observability into loss
+// Ring and spool crash window
+
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
 const version = "0.0.4";
 comptime {
