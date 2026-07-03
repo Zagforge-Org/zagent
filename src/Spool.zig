@@ -25,7 +25,7 @@ data: std.Io.File,
 write_off: u64,
 
 /// Represents consumer's read head where `next()` reads the next record.
-/// Each `next()` adnvaces it past one frame.
+/// Each `next()` advances it past one frame.
 read_off: u64,
 
 /// Represents dead, shipped and confirmed data.
