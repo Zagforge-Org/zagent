@@ -13,11 +13,10 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Load/soak evidence
-// Ops basics (runtime image must ship ca-certificates, or HTTPS fails closed)
+// Health/readiness endpoint (liveness only today; a wedged process is undetected)
 
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
-const version = "0.1.0";
+const version = "0.2.0";
 comptime {
     // Fail the build if `version` isn't a valid semver.
     _ = std.SemanticVersion.parse(version) catch @compileError("`version` must be a valid semantic version");
