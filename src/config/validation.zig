@@ -16,6 +16,7 @@ const max_retries_max = 20; // backoff shifts by `attempt`; keep < 63
 pub const ValidationError = error{
     EmptyEndpoint,
     EndpointMissingScheme,
+    InsecureEndpoint,
     EmptyLogPaths,
     EmptyDiskPath,
     EmptyAuthHeader,
