@@ -16,7 +16,7 @@ const cli = @import("cli.zig");
 // Fix one-sample shutdown race
 // Spool cursor isn't power-loss durable
 // Load/soak evidence
-// Ops basics
+// Ops basics (runtime image must ship ca-certificates, or HTTPS fails closed)
 
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
 const version = "0.0.4";
