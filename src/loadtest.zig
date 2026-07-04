@@ -199,8 +199,8 @@ pub fn main(init: std.process.Init) !void {
         spool_peak = @max(spool_peak, sp);
         const c = counters.snapshot();
         std.debug.print("{d:>2}  {d:>6.1}  {d:>3}  {d:>8}  {d:>8}  {d:>7}  {d:>8}  {d:>8}\n", .{
-            @divTrunc(elapsed_ms, 1000), mb(rss), fds, sp / 1024,
-            c.batches_shipped, c.spool_dropped, c.send_failures, received.load(.monotonic),
+            @divTrunc(elapsed_ms, 1000), mb(rss),         fds,             sp / 1024,
+            c.batches_shipped,           c.spool_dropped, c.send_failures, received.load(.monotonic),
         });
         io.sleep(.fromMilliseconds(1000), .awake) catch break;
     }

@@ -36,7 +36,7 @@ fn expectDrain(rb: *RingBuffer, expected: []const []const u8) !void {
 }
 
 test "push then pop round-trips a single record" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -44,7 +44,7 @@ test "push then pop round-trips a single record" {
 }
 
 test "pop returns records in FIFO order (not LIFO)" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -54,7 +54,7 @@ test "pop returns records in FIFO order (not LIFO)" {
 }
 
 test "pop on empty buffer returns null (fresh and after drain)" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,4);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer rb.deinit();
 
     try expectEmpty(&rb);
@@ -65,7 +65,7 @@ test "pop on empty buffer returns null (fresh and after drain)" {
 }
 
 test "cursors wrap without overflow" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
     defer rb.deinit();
 
     // Fill, drain part, refill so head/tail cross the modulo boundary.
@@ -82,7 +82,7 @@ test "cursors wrap without overflow" {
 }
 
 test "exactly full: no drops, count == capacity" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -95,7 +95,7 @@ test "exactly full: no drops, count == capacity" {
 }
 
 test "overflow by one drops the oldest record" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
     defer rb.deinit();
 
     try rb.push(rec("a")); // evicted
@@ -110,7 +110,7 @@ test "overflow by one drops the oldest record" {
 
 test "overflow by many keeps only the last `capacity` records, in order" {
     const cap = 4;
-    var rb = try RingBuffer.init(testing.allocator, testing.io,cap);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, cap);
     defer rb.deinit();
 
     const total = 2 * cap + 3; // 11
@@ -135,7 +135,7 @@ test "overflow by many keeps only the last `capacity` records, in order" {
 }
 
 test "capacity 1: every push past the first evicts" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,1);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 1);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -150,7 +150,7 @@ test "capacity 1: every push past the first evicts" {
 test "deinit frees live (un-popped) records" {
     // No explicit frees here: deinit must release the content of records left
     // in the buffer, or testing.allocator fails the test.
-    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
@@ -160,7 +160,7 @@ test "deinit frees live (un-popped) records" {
 }
 
 test "interleaved push/pop stays consistent" {
-    var rb = try RingBuffer.init(testing.allocator, testing.io,3);
+    var rb = try RingBuffer.init(testing.allocator, testing.io, 3);
     defer rb.deinit();
 
     try rb.push(rec("a"));
