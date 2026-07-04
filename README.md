@@ -8,6 +8,9 @@
   <a href="https://github.com/Zagforge-Org/zagent/actions/workflows/ci.yml">
     <img src="https://github.com/Zagforge-Org/zagent/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
+  <a href="https://github.com/Zagforge-Org/zagent/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Zagforge-Org/zagent?label=release" alt="Latest release">
+  </a>
 </p>
 
 A small, durable log + metric shipper. `zagent` tails a growing log file,
@@ -52,11 +55,32 @@ cursor commit re-sends the last batch. **Downstream must tolerate duplicates.**
 The spool is CRC-framed and fsync'd per record, and checkpoints are directory-
 fsync'd, so records are durable across process crashes and power loss.
 
-## Build
+## Install
+
+### Prebuilt binary (recommended)
+
+Static Linux binaries are attached to each
+[release](https://github.com/Zagforge-Org/zagent/releases/latest):
 
 ```sh
-zig build                          # debug binary at zig-out/bin/zagent
-zig build -Doptimize=ReleaseSafe   # release binary (recommended)
+ver=v0.2.0                        # latest release tag
+arch=x86_64-linux                 # or aarch64-linux
+curl -fsSL "https://github.com/Zagforge-Org/zagent/releases/download/${ver}/zagent-${ver}-${arch}.tar.gz" | tar -xz
+./zagent-${ver}-${arch}/zagent --version
+```
+
+### Container image
+
+```sh
+docker pull ghcr.io/zagforge-org/zagent:0.2.0   # or :latest
+```
+
+See [DEPLOY.md](DEPLOY.md) for running it (config, volumes, `ca-certificates`).
+
+### From source
+
+```sh
+zig build -Doptimize=ReleaseSafe   # binary at zig-out/bin/zagent
 ```
 
 `ReleaseSafe` keeps the overflow/bounds checks that guard the CRC framing and
