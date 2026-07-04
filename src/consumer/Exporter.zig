@@ -72,11 +72,7 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
     defer self.buffer.close();
 
     while (running.load(.monotonic)) {
-        // Move everything currently in the ring onto the durable spool.
-        while (self.buffer.pop()) |rec| {
-            self.spoolRecord(rec, counters) catch |err| std.log.err("spool append: {t}", .{err});
-            self.allocator.free(rec.content);
-        }
+        self.drainRing(counters);
 
         // Build a batch of NDJSON from the spool.
         var raw: std.ArrayList(u8) = .empty;
@@ -118,6 +114,18 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
         };
         try self.spool.ack();
         counters.incrementShipped();
+    }
+
+    // Shutdown drain: flush records pushed since the last iteration to the
+    // durable spool. No ship - the spool replays on next start.
+    self.drainRing(counters);
+}
+
+/// Drain the ring onto the durable spool, freeing each record after handoff.
+fn drainRing(self: *Self, counters: *Counters) void {
+    while (self.buffer.pop()) |rec| {
+        self.spoolRecord(rec, counters) catch |err| std.log.err("spool append: {t}", .{err});
+        self.allocator.free(rec.content);
     }
 }
 
