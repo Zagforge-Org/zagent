@@ -13,7 +13,11 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Ring and spool crash window
+// Clarify counter semantics
+// Fix one-sample shutdown race
+// Spool cursor isn't power-loss durable
+// Load/soak evidence
+// Ops basics
 
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
 const version = "0.0.4";
