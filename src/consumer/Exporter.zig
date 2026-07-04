@@ -122,7 +122,7 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
 }
 
 /// Drain the ring onto the durable spool, freeing each record after handoff.
-fn drainRing(self: *Self, counters: *Counters) void {
+pub fn drainRing(self: *Self, counters: *Counters) void {
     while (self.buffer.pop()) |rec| {
         self.spoolRecord(rec, counters) catch |err| std.log.err("spool append: {t}", .{err});
         self.allocator.free(rec.content);
