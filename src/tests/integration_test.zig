@@ -50,10 +50,12 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     const io = testing.io;
     const alloc = testing.allocator;
 
-    // Real in-process HTTP sink on a fixed loopback port.
-    const port = 39517;
-    const addr = try net.IpAddress.parseIp4("127.0.0.1", port);
+    // Real in-process HTTP sink on an OS-assigned loopback port. Binding to
+    // port 0 and reading the resolved port back avoids a hardcoded port that
+    // could collide or linger in TIME_WAIT across runs.
+    const addr = try net.IpAddress.parseIp4("127.0.0.1", 0);
     var server = try addr.listen(io, .{});
+    const port = server.socket.address.getPort();
     var received = std.atomic.Value(usize).init(0);
     const sink = try std.Thread.spawn(.{}, runSink, .{ &server, io, &received });
 
@@ -78,7 +80,9 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     var counters: Counters = .{};
     var sampler = Sampler.init(alloc, io, &ring, &counters, 50, "/"); // ticks several times
 
-    var exporter = Exporter.init(alloc, io, &ring, &spool, "http://127.0.0.1:39517/ingest");
+    var endpoint_buf: [64]u8 = undefined;
+    const endpoint = try std.fmt.bufPrint(&endpoint_buf, "http://127.0.0.1:{d}/ingest", .{port});
+    var exporter = Exporter.init(alloc, io, &ring, &spool, endpoint);
     exporter.min_send_interval_ms = 0;
 
     var running = std.atomic.Value(bool).init(true);
@@ -86,8 +90,14 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     const t2 = try std.Thread.spawn(.{}, runSampler, .{ &sampler, &running });
     const t3 = try std.Thread.spawn(.{}, runExporter, .{ &exporter, &counters, &running });
 
-    // Let all three work against the shared ring, then signal shutdown.
-    try io.sleep(.fromMilliseconds(500), .awake);
+    // Wait until the pipeline actually delivers a batch to the sink, polling
+    // instead of sleeping a fixed 500ms: exits as soon as delivery is proven
+    // (fast on quick machines) but tolerates a slow/loaded CI up to the bound.
+    const deadline_ms: usize = 5000;
+    var waited: usize = 0;
+    while (received.load(.monotonic) == 0 and waited < deadline_ms) : (waited += 10) {
+        try io.sleep(.fromMilliseconds(10), .awake);
+    }
     running.store(false, .monotonic);
     t1.join();
     t2.join();
