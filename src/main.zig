@@ -13,7 +13,6 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Fix one-sample shutdown race
 // Load/soak evidence
 // Ops basics (runtime image must ship ca-certificates, or HTTPS fails closed)
 
@@ -158,7 +157,9 @@ pub fn main(init: std.process.Init) !void {
             var running = std.atomic.Value(bool).init(true);
             linux.installSignalHandlers(&running);
             defer linux.clearSignalHandlers();
-            var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &counters, &running });
+
+            var exporter_running = std.atomic.Value(bool).init(true);
+            var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &counters, &exporter_running });
 
             // Second producer: sample system metrics on an interval into the ring.
             var sampler = Sampler.init(init.gpa, init.io, &ring, &counters, cfg.metric_interval_ms, cfg.disk_path);
@@ -168,15 +169,15 @@ pub fn main(init: std.process.Init) !void {
             // a fatal I/O error.
             t.follow(&file_writer.interface, &running) catch {
                 running.store(false, .monotonic);
+                exporter_running.store(false, .monotonic);
                 sample_future.cancel(init.io) catch {};
                 export_future.cancel(init.io) catch {};
                 std.process.exit(1);
             };
 
-            // Stop the metric producer (interrupting its sleep), then let the
-            // Exporter drain what remains before returning.
             running.store(false, .monotonic);
             sample_future.cancel(init.io) catch {};
+            exporter_running.store(false, .monotonic);
             export_future.await(init.io) catch {};
         },
     }
