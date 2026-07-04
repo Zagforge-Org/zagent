@@ -13,7 +13,6 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Clarify counter semantics
 // Fix one-sample shutdown race
 // Spool cursor isn't power-loss durable
 // Load/soak evidence
