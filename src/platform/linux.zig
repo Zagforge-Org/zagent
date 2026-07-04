@@ -6,7 +6,9 @@ const std = @import("std");
 /// Global shared atomic variable depicting the state of the program.
 var g_running: ?*std.atomic.Value(bool) = null;
 
-/// Statfs represents statsfs RAM-based file system for the Linux kernel statistics.
+/// Mirrors the kernel's `struct statfs`. std provides no statfs type, so the
+/// layout is hand-rolled and assumes the 64-bit ABI (`__fsword_t` == i64); it is
+/// correct on x86-64/aarch64 but not on 32-bit targets.
 const Statfs = extern struct {
     type: i64,
     bsize: i64, // block size that f_blocks/f_bfree/f_bavail are counted in
