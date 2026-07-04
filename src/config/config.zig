@@ -29,8 +29,7 @@ pub const Config = struct {
     auth_header: ?[]const u8 = null, // optional ("Bearer", etc.)
     batch_max: usize = 100, // flush at this many records
     max_retries: u32 = 5,
-
-    allow_insecure_http: bool = false,
+    allow_insecure_http: bool = false, // whether we allow insecure HTTP
 
     /// Load and parse config from a JSON file path.
     pub fn loadFromFile(

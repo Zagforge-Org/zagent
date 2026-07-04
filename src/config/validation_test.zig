@@ -11,7 +11,7 @@ fn validCfg() Config {
     return .{
         .log_paths = "logs/app.log",
         .disk_path = "/",
-        .endpoint = "http://localhost:8080/ingest",
+        .endpoint = "https://localhost:8080/ingest",
     };
 }
 
@@ -36,6 +36,19 @@ test "endpoint: missing http(s) scheme is rejected" {
 test "endpoint: https scheme is accepted" {
     var c = validCfg();
     c.endpoint = "https://example.com/ingest";
+    try validation.validate(c);
+}
+
+test "endpoint: plaintext http is rejected by default" {
+    var c = validCfg();
+    c.endpoint = "http://example.com/ingest";
+    try testing.expectError(error.InsecureEndpoint, validation.validate(c));
+}
+
+test "endpoint: plaintext http is allowed with allow_insecure_http" {
+    var c = validCfg();
+    c.endpoint = "http://example.com/ingest";
+    c.allow_insecure_http = true;
     try validation.validate(c);
 }
 
