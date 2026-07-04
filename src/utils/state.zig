@@ -36,13 +36,14 @@ pub fn readState(io: std.Io, dir: std.Io.Dir, name: []const u8, buf: []u8) !?[]u
     return buf[0..n];
 }
 
-/// Atomically replace `name` in `dir` with `bytes`: the data is written to a
-/// temp file, fsync'd, then renamed over `name`. The rename is the only change
-/// to `name`, so a reader never sees a half-written file, only the
-/// complete old or complete new contents.
+/// Atomically and durably replace `name` in `dir` with `bytes`: the data is
+/// written to a temp file, fsync'd, renamed over `name`, then the directory is
+/// fsync'd. The rename is the only change to `name`, so a reader never sees a
+/// half-written file, only the complete old or complete new contents.
 ///
-/// Atomic, but not power-loss durable: the rename directory entry itself is not
-/// fsync'd, so a power cut may leave the intact old file. Never corruption.
+/// Power-loss durable: fsyncing the directory persists the rename itself, so a
+/// power cut after this returns leaves the new contents, not the old. Without
+/// that final fsync the directory entry could be lost and `name` revert.
 pub fn writeAtomic(io: std.Io, dir: std.Io.Dir, name: []const u8, bytes: []const u8) !void {
     var tmp_buf: [256]u8 = undefined;
     const tmp = try std.fmt.bufPrint(&tmp_buf, "{s}.tmp", .{name});
@@ -55,4 +56,12 @@ pub fn writeAtomic(io: std.Io, dir: std.Io.Dir, name: []const u8, bytes: []const
     }
 
     try dir.rename(tmp, dir, name, io); // swap atomically into place
+
+    // Persist the rename by fsyncing the directory. The borrowed `dir` handle is
+    // opened O_PATH, which can't be fsync'd, so open a fresh iterable handle to
+    // fsync and close it.
+    var sync_dir = try dir.openDir(io, ".", .{ .iterate = true });
+    defer sync_dir.close(io);
+    const dir_file: std.Io.File = .{ .handle = sync_dir.handle, .flags = .{ .nonblocking = false } };
+    try dir_file.sync(io);
 }

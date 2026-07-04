@@ -14,7 +14,6 @@ const cli = @import("cli.zig");
 
 // TODO:
 // Fix one-sample shutdown race
-// Spool cursor isn't power-loss durable
 // Load/soak evidence
 // Ops basics (runtime image must ship ca-certificates, or HTTPS fails closed)
 
