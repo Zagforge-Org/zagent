@@ -13,7 +13,6 @@ const linux = @import("platform/linux.zig");
 const cli = @import("cli.zig");
 
 // TODO:
-// Observability into loss
 // Ring and spool crash window
 
 /// zagent's semantic version. Keep in sync with `build.zig.zon`.
