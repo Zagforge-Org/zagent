@@ -17,10 +17,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v1
+      - name: Cache Zig
+        id: zig
+        uses: actions/cache@v4
         with:
-          version: 0.16.0
+          path: zig
+          key: zig-0.16.0-linux-x86_64
+
+      - name: Install Zig
+        if: steps.zig.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
+          mv zig-x86_64-linux-0.16.0 zig
+
+      - name: Add Zig to PATH
+        run: echo "$PWD/zig" >> "$GITHUB_PATH"
 
       - name: Format check
         run: zig fmt --check src build.zig build.zig.zon
