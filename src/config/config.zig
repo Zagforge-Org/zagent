@@ -30,6 +30,8 @@ pub const Config = struct {
     batch_max: usize = 100, // flush at this many records
     max_retries: u32 = 5,
 
+    allow_insecure_http: bool = false,
+
     /// Load and parse config from a JSON file path.
     pub fn loadFromFile(
         allocator: std.mem.Allocator,

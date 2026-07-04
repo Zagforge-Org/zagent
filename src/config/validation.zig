@@ -47,9 +47,13 @@ pub fn validate(cfg: Config) ValidationError!void {
     // Endpoint
     if (cfg.endpoint) |endpoint| {
         if (endpoint.len == 0) return error.EmptyEndpoint;
+
         if (!std.mem.startsWith(u8, endpoint, "http://") and
             !std.mem.startsWith(u8, endpoint, "https://"))
             return error.EndpointMissingScheme;
+
+        if (std.mem.startsWith(u8, endpoint, "http://") and !cfg.allow_insecure_http)
+            return error.InsecureEndpoint;
     }
 
     // Positive values
