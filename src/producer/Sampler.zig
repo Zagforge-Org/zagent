@@ -25,7 +25,7 @@ pub const SelfStats = struct {
     ring_dropped: u64,
     spool_dropped: u64,
     batches_shipped: u64,
-    batches_failed: u64,
+    send_failures: u64,
 };
 
 /// Sample represents a struct with kernel-level information.
@@ -88,7 +88,7 @@ pub fn tick(self: *Self) !void {
             .ring_dropped = ring.dropped,
             .spool_dropped = cnt.spool_dropped,
             .batches_shipped = cnt.batches_shipped,
-            .batches_failed = cnt.batches_failed,
+            .send_failures = cnt.send_failures,
         },
     };
 

@@ -108,7 +108,7 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
         // durably spooled and is retried on the next pass.
         self.shipBatch(raw.items) catch |err| {
             std.log.err("batch failed permanently: {t}", .{err});
-            counters.incrementFailed();
+            counters.incrementSendFailure();
             self.spool.rewind();
             continue;
         };
