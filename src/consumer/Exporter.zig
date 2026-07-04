@@ -47,6 +47,16 @@ min_send_interval_ms: u64,
 /// awake (monotonic) timestamp of the last send start.
 last_send: std.Io.Timestamp,
 
+/// Minimum time between periodic loss/health reports.
+stats_interval_ms: u64,
+
+/// awake timestamp of the last loss report.
+last_stats_log: std.Io.Timestamp,
+
+/// Loss counters as of the last report, so a heartbeat only fires on change.
+last_dropped: u64,
+last_failures: u64,
+
 pub fn init(allocator: std.mem.Allocator, io: std.Io, buffer: *RingBuffer, spool: *Spool, endpoint: []const u8) Self {
     return .{
         .allocator = allocator,
@@ -60,6 +70,10 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, buffer: *RingBuffer, spool
         .last_send = .zero,
         .max_retries = 5,
         .client = std.http.Client{ .allocator = allocator, .io = io },
+        .stats_interval_ms = 30_000,
+        .last_stats_log = .zero,
+        .last_dropped = 0,
+        .last_failures = 0,
     };
 }
 
@@ -73,6 +87,7 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
 
     while (running.load(.monotonic)) {
         self.drainRing(counters);
+        self.maybeLogStats(counters);
 
         // Build a batch of NDJSON from the spool.
         var raw: std.ArrayList(u8) = .empty;
@@ -124,6 +139,27 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
     std.log.info("exporter stopped: shipped={d} spool_dropped={d} send_failures={d}", .{ s.batches_shipped, s.spool_dropped, s.send_failures });
 }
 
+/// Emit a periodic loss/health report, rate-limited to `stats_interval_ms` and
+/// only when loss advanced since the last report. Gives visibility during an
+/// outage, when the counters folded into telemetry can't be shipped.
+fn maybeLogStats(self: *Self, counters: *Counters) void {
+    const now = std.Io.Timestamp.now(self.io, .awake);
+    const elapsed_ms = self.last_stats_log.durationTo(now).toMilliseconds();
+    if (elapsed_ms < @as(i64, @intCast(self.stats_interval_ms))) return;
+    self.last_stats_log = now;
+
+    const s = counters.snapshot();
+    if (s.spool_dropped == self.last_dropped and s.send_failures == self.last_failures) return;
+
+    std.log.warn("loss report: spool_dropped={d} (+{d}) send_failures={d} (+{d}) shipped={d}", .{
+        s.spool_dropped,   s.spool_dropped - self.last_dropped,
+        s.send_failures,   s.send_failures - self.last_failures,
+        s.batches_shipped,
+    });
+    self.last_dropped = s.spool_dropped;
+    self.last_failures = s.send_failures;
+}
+
 /// Drain the ring onto the durable spool, freeing each record after handoff.
 pub fn drainRing(self: *Self, counters: *Counters) void {
     while (self.buffer.pop()) |rec| {
@@ -139,8 +175,9 @@ pub fn spoolRecord(self: *Self, rec: Record, counters: *Counters) !void {
     defer self.allocator.free(line);
 
     if (!try self.spool.append(line)) {
+        // Counted here and surfaced by the periodic loss report, so we don't
+        // log per record - a sustained outage would flood the log otherwise.
         counters.incrementDropped();
-        std.log.warn("spool full; dropping record", .{});
     }
 }
 
