@@ -1,0 +1,41 @@
+[Unit]
+Description=zagent log + metric shipper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zagent
+Group=zagent
+
+# systemd creates and owns /var/lib/zagent; the durable spool and checkpoints
+# live under it ($HOME/.zagent) and persist across restarts, which is what makes
+# delivery at-least-once. Do not point HOME at a tmpfs.
+StateDirectory=zagent
+Environment=HOME=/var/lib/zagent
+WorkingDirectory=/var/lib/zagent
+
+ExecStart=/usr/local/bin/zagent -c /etc/zagent/zagent.config.json
+
+# SIGTERM triggers zagent's graceful drain (stop producers, flush ring to the
+# durable spool). Give it room to finish before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Hardening. ProtectSystem=strict leaves the FS read-only except StateDirectory,
+# so reads (the tailed log, the config) still work; only the spool is writable.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
