@@ -119,6 +119,9 @@ pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bo
     // Shutdown drain: flush records pushed since the last iteration to the
     // durable spool. No ship - the spool replays on next start.
     self.drainRing(counters);
+
+    const s = counters.snapshot();
+    std.log.info("exporter stopped: shipped={d} spool_dropped={d} send_failures={d}", .{ s.batches_shipped, s.spool_dropped, s.send_failures });
 }
 
 /// Drain the ring onto the durable spool, freeing each record after handoff.
