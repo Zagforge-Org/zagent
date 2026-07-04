@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const RingBuffer = @import("../core/RingBuffer.zig");
-const Counters = @import("../Counters.zig");
+const Counters = @import("../core/Counters.zig");
 const linux = @import("../platform/linux.zig");
 const json = @import("../utils/json.zig");
 

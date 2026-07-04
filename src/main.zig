@@ -3,14 +3,14 @@ const Tailer = @import("producer/Tailer.zig");
 const RingBuffer = @import("core/RingBuffer.zig");
 const Exporter = @import("consumer/Exporter.zig");
 const Sampler = @import("producer/Sampler.zig");
-const Spool = @import("Spool.zig");
+const Spool = @import("core/Spool.zig");
 const Writer = @import("utils/writer.zig").Writer;
-const Counters = @import("Counters.zig");
+const Counters = @import("core/Counters.zig");
 const config = @import("config/config.zig");
 const state = @import("utils/state.zig");
 
 const linux = @import("platform/linux.zig");
-const cli = @import("cli.zig");
+const cli = @import("cli/cli.zig");
 
 // TODO:
 // Health/readiness endpoint (liveness only today; a wedged process is undetected)
@@ -24,7 +24,7 @@ comptime {
 
 test {
     _ = @import("producer/Tailer_test.zig");
-    _ = @import("Spool_test.zig");
+    _ = @import("core/Spool_test.zig");
     _ = @import("core/RingBuffer_test.zig");
     _ = @import("consumer/Exporter_test.zig");
     _ = @import("platform/linux_test.zig");
@@ -32,7 +32,7 @@ test {
     _ = @import("tests/integration_test.zig");
     _ = @import("config/validation_test.zig");
     _ = @import("utils/state_test.zig");
-    _ = @import("wire_test.zig");
+    _ = @import("core/wire_test.zig");
 }
 
 const banner =

@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Tailer = @import("Tailer.zig");
-const Spool = @import("../Spool.zig");
+const Spool = @import("../core/Spool.zig");
 
 /// Reads the next spooled record and asserts its JSON line contains `want`
 /// (the record is the `{ts,kind,msg}` line, not the raw content). Frees it.

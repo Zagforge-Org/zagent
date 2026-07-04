@@ -6,7 +6,7 @@
 //! last batch so downstream must tolerate duplicates.
 
 const std = @import("std");
-const state = @import("utils/state.zig");
+const state = @import("../utils/state.zig");
 
 const Self = @This();
 const data_name = "data";

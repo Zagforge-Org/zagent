@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const wire = @import("wire.zig");
-const Record = @import("core/Record.zig");
+const Record = @import("Record.zig");
 
 test "toJsonLine emits msg as a JSON string for valid content" {
     const line = try wire.toJsonLine(.{

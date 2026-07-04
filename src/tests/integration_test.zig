@@ -10,8 +10,8 @@ const Tailer = @import("../producer/Tailer.zig");
 const Sampler = @import("../producer/Sampler.zig");
 const Exporter = @import("../consumer/Exporter.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
-const Counters = @import("../Counters.zig");
-const Spool = @import("../Spool.zig");
+const Counters = @import("../core/Counters.zig");
+const Spool = @import("../core/Spool.zig");
 
 fn runTailer(t: *Tailer, w: *std.Io.Writer, running: *const std.atomic.Value(bool)) void {
     t.follow(w, running) catch |e| std.log.err("tailer: {t}", .{e});

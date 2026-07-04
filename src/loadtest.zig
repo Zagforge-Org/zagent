@@ -12,8 +12,8 @@ const Tailer = @import("producer/Tailer.zig");
 const Sampler = @import("producer/Sampler.zig");
 const Exporter = @import("consumer/Exporter.zig");
 const RingBuffer = @import("core/RingBuffer.zig");
-const Counters = @import("Counters.zig");
-const Spool = @import("Spool.zig");
+const Counters = @import("core/Counters.zig");
+const Spool = @import("core/Spool.zig");
 
 const workdir = "zig-cache/loadtest";
 

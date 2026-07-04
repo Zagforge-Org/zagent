@@ -7,11 +7,11 @@
 const std = @import("std");
 const flate = std.compress.flate;
 const RingBuffer = @import("../core/RingBuffer.zig");
-const Spool = @import("../Spool.zig");
-const Counters = @import("../Counters.zig");
+const Spool = @import("../core/Spool.zig");
+const Counters = @import("../core/Counters.zig");
 const Record = RingBuffer.Record;
 const json = @import("../utils/json.zig");
-const toJsonLine = @import("../wire.zig").toJsonLine;
+const toJsonLine = @import("../core/wire.zig").toJsonLine;
 
 const serializeJson = json.Serialize;
 

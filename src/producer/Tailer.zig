@@ -5,8 +5,8 @@
 
 const std = @import("std");
 const state = @import("../utils/state.zig");
-const Spool = @import("../Spool.zig");
-const wire = @import("../wire.zig");
+const Spool = @import("../core/Spool.zig");
+const wire = @import("../core/wire.zig");
 
 /// Path of the file being followed.
 path: []const u8,

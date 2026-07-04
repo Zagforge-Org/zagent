@@ -1,6 +1,6 @@
 const std = @import("std");
-const json = @import("utils/json.zig");
-const Record = @import("core/Record.zig");
+const json = @import("../utils/json.zig");
+const Record = @import("Record.zig");
 
 /// U+FFFD REPLACEMENT CHARACTER, substituted for invalid UTF-8 bytes.
 const replacement = "\u{FFFD}";

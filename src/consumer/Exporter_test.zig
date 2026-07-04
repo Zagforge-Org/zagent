@@ -1,8 +1,8 @@
 const std = @import("std");
 const flate = std.compress.flate;
 const RingBuffer = @import("../core/RingBuffer.zig");
-const Spool = @import("../Spool.zig");
-const Counters = @import("../Counters.zig");
+const Spool = @import("../core/Spool.zig");
+const Counters = @import("../core/Counters.zig");
 
 /// The unit under test.
 const Self = @import("Exporter.zig");
