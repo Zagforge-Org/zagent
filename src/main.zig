@@ -35,6 +35,7 @@ test {
     _ = @import("tests/integration_test.zig");
     _ = @import("config/validation_test.zig");
     _ = @import("utils/state_test.zig");
+    _ = @import("wire_test.zig");
 }
 
 const banner =
