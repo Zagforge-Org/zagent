@@ -115,6 +115,21 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    // Load/soak harness: `zig build load -- [seconds]`. Drives the real pipeline
+    // at volume and reports RSS / fd / spool bounds.
+    const load_exe = b.addExecutable(.{
+        .name = "loadtest",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/loadtest.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const load_run = b.addRunArtifact(load_exe);
+    if (b.args) |args| load_run.addArgs(args);
+    const load_step = b.step("load", "Run the load/soak harness");
+    load_step.dependOn(&load_run.step);
+
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
     // set the releative field.
