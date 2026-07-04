@@ -5,6 +5,7 @@ const Exporter = @import("consumer/Exporter.zig");
 const Sampler = @import("producer/Sampler.zig");
 const Spool = @import("Spool.zig");
 const Writer = @import("utils/writer.zig").Writer;
+const Counters = @import("Counters.zig");
 const config = @import("config/config.zig");
 const state = @import("utils/state.zig");
 
@@ -141,6 +142,10 @@ pub fn main(init: std.process.Init) !void {
             t.max_line = cfg.max_line_bytes;
             defer t.deinit();
 
+            // Shared loss/throughput tallies: written by the exporter, read by
+            // the sampler to fold into telemetry. Lives for the whole run scope.
+            var counters: Counters = .{};
+
             // Consumer: drain the ring and ship batches on its own task.
             var exporter = Exporter.init(init.gpa, init.io, &ring, &spool, ship_endpoint);
             exporter.batch_max = cfg.batch_max;
@@ -151,10 +156,10 @@ pub fn main(init: std.process.Init) !void {
             var running = std.atomic.Value(bool).init(true);
             linux.installSignalHandlers(&running);
             defer linux.clearSignalHandlers();
-            var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &running });
+            var export_future = try init.io.concurrent(Exporter.run, .{ &exporter, &counters, &running });
 
             // Second producer: sample system metrics on an interval into the ring.
-            var sampler = Sampler.init(init.gpa, init.io, &ring, cfg.metric_interval_ms, cfg.disk_path);
+            var sampler = Sampler.init(init.gpa, init.io, &ring, &counters, cfg.metric_interval_ms, cfg.disk_path);
             var sample_future = try init.io.concurrent(Sampler.run, .{ &sampler, &running });
 
             // Producer: follow the log file forever on this task; returns only on

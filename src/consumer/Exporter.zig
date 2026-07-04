@@ -8,6 +8,7 @@ const std = @import("std");
 const flate = std.compress.flate;
 const RingBuffer = @import("../core/RingBuffer.zig");
 const Spool = @import("../Spool.zig");
+const Counters = @import("../Counters.zig");
 const Record = RingBuffer.Record;
 const json = @import("../utils/json.zig");
 const toJsonLine = @import("../wire.zig").toJsonLine;
@@ -66,14 +67,14 @@ pub fn deinit(self: *Self) void {
     self.client.deinit();
 }
 
-pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
+pub fn run(self: *Self, counters: *Counters, running: *const std.atomic.Value(bool)) !void {
     // Wake any producer blocked on a full ring in `.block` mode when we leave.
     defer self.buffer.close();
 
     while (running.load(.monotonic)) {
         // Move everything currently in the ring onto the durable spool.
         while (self.buffer.pop()) |rec| {
-            self.spoolRecord(rec) catch |err| std.log.err("spool append: {t}", .{err});
+            self.spoolRecord(rec, counters) catch |err| std.log.err("spool append: {t}", .{err});
             self.allocator.free(rec.content);
         }
 
@@ -111,20 +112,23 @@ pub fn run(self: *Self, running: *const std.atomic.Value(bool)) !void {
         // durably spooled and is retried on the next pass.
         self.shipBatch(raw.items) catch |err| {
             std.log.err("batch failed permanently: {t}", .{err});
+            counters.incrementFailed();
             self.spool.rewind();
             continue;
         };
         try self.spool.ack();
+        counters.incrementShipped();
     }
 }
 
 /// Format one record as a minified `{ts,kind,msg}` JSON object and append it
 /// durably to the spool.
-pub fn spoolRecord(self: *Self, rec: Record) !void {
+pub fn spoolRecord(self: *Self, rec: Record, counters: *Counters) !void {
     const line = try toJsonLine(rec, self.allocator);
     defer self.allocator.free(line);
 
     if (!try self.spool.append(line)) {
+        counters.incrementDropped();
         std.log.warn("spool full; dropping record", .{});
     }
 }

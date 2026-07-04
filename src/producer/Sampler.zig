@@ -3,12 +3,14 @@
 
 const std = @import("std");
 const RingBuffer = @import("../core/RingBuffer.zig");
+const Counters = @import("../Counters.zig");
 const linux = @import("../platform/linux.zig");
 const json = @import("../utils/json.zig");
 
 allocator: std.mem.Allocator,
 io: std.Io,
 buffer: *RingBuffer,
+counters: *Counters,
 interval_ms: u64,
 disk_path: []const u8,
 
@@ -16,12 +18,23 @@ disk_path: []const u8,
 /// `null` on the very first tick.
 prev_cpu: ?linux.CpuTimes = null,
 
+/// zagent's own pipeline health, folded into each sample.
+pub const SelfStats = struct {
+    ring_depth: usize,
+    ring_capacity: usize,
+    ring_dropped: u64,
+    spool_dropped: u64,
+    batches_shipped: u64,
+    batches_failed: u64,
+};
+
 /// Sample represents a struct with kernel-level information.
 pub const Sample = struct {
     uptime_s: f64,
     mem: linux.MemInfo,
     cpu_util: ?f64,
     disk: linux.DiskUsage,
+    zagent: SelfStats,
 };
 
 const Self = @This();
@@ -30,6 +43,7 @@ pub fn init(
     allocator: std.mem.Allocator,
     io: std.Io,
     buffer: *RingBuffer,
+    counters: *Counters,
     interval_ms: u64,
     disk_path: []const u8,
 ) Self {
@@ -37,6 +51,7 @@ pub fn init(
         .allocator = allocator,
         .io = io,
         .buffer = buffer,
+        .counters = counters,
         .interval_ms = interval_ms,
         .disk_path = disk_path,
     };
@@ -59,11 +74,22 @@ pub fn tick(self: *Self) !void {
     const util = cpuUtil(self.prev_cpu, cur);
     self.prev_cpu = cur;
 
+    const ring = self.buffer.stats();
+    const cnt = self.counters.snapshot();
+
     const sample: Sample = .{
         .uptime_s = try linux.readUptime(self.io),
         .mem = try linux.readMemory(self.io),
         .cpu_util = util,
         .disk = try linux.readDiskUsage(self.disk_path),
+        .zagent = .{
+            .ring_depth = ring.count,
+            .ring_capacity = self.buffer.capacity,
+            .ring_dropped = ring.dropped,
+            .spool_dropped = cnt.spool_dropped,
+            .batches_shipped = cnt.batches_shipped,
+            .batches_failed = cnt.batches_failed,
+        },
     };
 
     // Serialize opaque content bytes where the ring dupes it and free our copy.

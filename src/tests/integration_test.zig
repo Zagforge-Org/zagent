@@ -10,6 +10,7 @@ const Tailer = @import("../producer/Tailer.zig");
 const Sampler = @import("../producer/Sampler.zig");
 const Exporter = @import("../consumer/Exporter.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
+const Counters = @import("../Counters.zig");
 const Spool = @import("../Spool.zig");
 
 fn runTailer(t: *Tailer, w: *std.Io.Writer, running: *const std.atomic.Value(bool)) void {
@@ -18,8 +19,8 @@ fn runTailer(t: *Tailer, w: *std.Io.Writer, running: *const std.atomic.Value(boo
 fn runSampler(s: *Sampler, running: *const std.atomic.Value(bool)) void {
     s.run(running) catch |e| std.log.err("sampler: {t}", .{e});
 }
-fn runExporter(e: *Exporter, running: *const std.atomic.Value(bool)) void {
-    e.run(running) catch |err| std.log.err("exporter: {t}", .{err});
+fn runExporter(e: *Exporter, counters: *Counters, running: *const std.atomic.Value(bool)) void {
+    e.run(counters, running) catch |err| std.log.err("exporter: {t}", .{err});
 }
 
 /// runSink is a minimal HTTP sink that accepts connections and answers every request 200.
@@ -74,7 +75,8 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     var discard_buf: [256]u8 = undefined;
     var discard: std.Io.Writer.Discarding = .init(&discard_buf);
 
-    var sampler = Sampler.init(alloc, io, &ring, 50, "/"); // ticks several times
+    var counters: Counters = .{};
+    var sampler = Sampler.init(alloc, io, &ring, &counters, 50, "/"); // ticks several times
 
     var exporter = Exporter.init(alloc, io, &ring, &spool, "http://127.0.0.1:39517/ingest");
     exporter.min_send_interval_ms = 0;
@@ -82,7 +84,7 @@ test "integration: tailer + sampler + exporter deliver to a sink and shut down c
     var running = std.atomic.Value(bool).init(true);
     const t1 = try std.Thread.spawn(.{}, runTailer, .{ &tailer, &discard.writer, &running });
     const t2 = try std.Thread.spawn(.{}, runSampler, .{ &sampler, &running });
-    const t3 = try std.Thread.spawn(.{}, runExporter, .{ &exporter, &running });
+    const t3 = try std.Thread.spawn(.{}, runExporter, .{ &exporter, &counters, &running });
 
     // Let all three work against the shared ring, then signal shutdown.
     try io.sleep(.fromMilliseconds(500), .awake);

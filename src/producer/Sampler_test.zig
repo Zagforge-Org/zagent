@@ -3,6 +3,7 @@ const testing = std.testing;
 
 const Sampler = @import("Sampler.zig");
 const RingBuffer = @import("../core/RingBuffer.zig");
+const Counters = @import("../Counters.zig");
 const linux = @import("../platform/linux.zig");
 const json = @import("../utils/json.zig");
 
@@ -55,7 +56,8 @@ test "tick pushes one parseable .metric record into the ring" {
     var ring = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer ring.deinit();
 
-    var sampler = Sampler.init(testing.allocator, testing.io, &ring, 1000, "/");
+    var counters: Counters = .{};
+    var sampler = Sampler.init(testing.allocator, testing.io, &ring, &counters, 1000, "/");
     try sampler.tick();
 
     const rec = ring.pop() orelse return error.NoRecordPushed;
@@ -78,7 +80,8 @@ test "tick leaves cpu_util null on the first sample, populated on the second" {
     var ring = try RingBuffer.init(testing.allocator, testing.io, 4);
     defer ring.deinit();
 
-    var sampler = Sampler.init(testing.allocator, testing.io, &ring, 1000, "/");
+    var counters: Counters = .{};
+    var sampler = Sampler.init(testing.allocator, testing.io, &ring, &counters, 1000, "/");
 
     // First tick: no baseline yet, so cpu_util is null and prev_cpu gets set.
     try testing.expectEqual(@as(?linux.CpuTimes, null), sampler.prev_cpu);
