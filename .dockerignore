@@ -1,0 +1,16 @@
+# Build artifacts and caches — the image builds from source in-container.
+.git
+.gitignore
+.zig-cache
+zig-cache
+zig-out
+
+# Local editor / OS cruft
+*.swp
+.DS_Store
+
+# Docs and ops files not needed inside the build context
+DEPLOY.md
+Dockerfile
+.dockerignore
+deploy
